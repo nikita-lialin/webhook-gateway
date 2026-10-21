@@ -20,7 +20,7 @@ try {
 // Fastify используется только как фабрика pino-логгера (тот же JSON-формат, что у app).
 const log = Fastify({ logger: { level: config.logLevel } }).log;
 const pool = createPool(config);
-const worker = createDeliveryWorker(config, createDeliveryProcessor(pool, log));
+const worker = createDeliveryWorker(config, createDeliveryProcessor(pool, log, { deliveryTimeoutMs: config.deliveryTimeoutMs }));
 
 worker.on('error', (err) => log.error({ err }, 'worker error'));
 worker.on('failed', (job, err) => log.error({ err, jobId: job?.id }, 'job failed'));
