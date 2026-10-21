@@ -1,4 +1,5 @@
 import type { Pool } from '../../db/index.js';
+import type { EventRow } from '../../db/types.js';
 
 export interface NewEvent {
   endpointId: string;
@@ -35,4 +36,23 @@ export async function insertEventIdempotent(pool: Pool, input: NewEvent): Promis
   const row = existing.rows[0];
   if (!row) throw new Error('event vanished after idempotency conflict');
   return { eventId: row.id, duplicate: true };
+}
+
+const CLAIMABLE_STATUSES = ['pending', 'failed', 'processing'] as const;
+
+/**
+ * Атомарно переводит событие в `processing` и возвращает его. `null`, если события нет или оно уже
+ * `delivered`/`dead`. `processing` допустим: так подхватывается задача, оборвавшаяся вместе с воркером.
+ */
+export async function claimEventForProcessing(
+  pool: Pool,
+  eventId: string,
+): Promise<EventRow | null> {
+  const result = await pool.query<EventRow>(
+    `UPDATE events SET status = 'processing', updated_at = now()
+     WHERE id = $1 AND status = ANY($2::text[])
+     RETURNING *`,
+    [eventId, CLAIMABLE_STATUSES],
+  );
+  return result.rows[0] ?? null;
 }

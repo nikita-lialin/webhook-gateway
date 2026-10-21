@@ -17,6 +17,18 @@ services:
       timeout: 3s
       retries: 5
 
+  worker:
+    build: .
+    command: ["node", "dist/worker.js"]
+    env_file: .env
+    # больше таймаута доставки (10 с, шаг 11): текущие задачи успевают завершиться
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   postgres:
     image: postgres:16-alpine
     environment:

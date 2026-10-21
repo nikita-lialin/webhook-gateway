@@ -1,4 +1,4 @@
-import { Queue } from 'bullmq';
+import { Queue, Worker, type Job } from 'bullmq';
 
 export const DELIVERY_QUEUE_NAME = 'webhook-delivery';
 export const DEFAULT_ENQUEUE_TIMEOUT_MS = 2_000;
@@ -62,8 +62,24 @@ export async function isRedisHealthy(dq: DeliveryQueue): Promise<boolean> {
   }
 }
 
+export interface DeliveryJobData {
+  eventId: string;
+}
+
+/** Воркер доставки. Закрытие (`worker.close()`) дожидается текущих задач. */
+export function createDeliveryWorker(
+  config: { redisUrl: string; workerConcurrency: number },
+  handler: (job: Job<DeliveryJobData>) => Promise<void>,
+  options: { name?: string } = {},
+): Worker<DeliveryJobData> {
+  return new Worker<DeliveryJobData>(options.name ?? DELIVERY_QUEUE_NAME, handler, {
+    connection: parseRedisUrl(config.redisUrl),
+    concurrency: config.workerConcurrency,
+  });
+}
+
 export async function closeDeliveryQueue(dq: DeliveryQueue): Promise<void> {
   await dq.queue.close();
 }
 
-export type { Queue };
+export type { Job, Queue, Worker };
