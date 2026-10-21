@@ -1,7 +1,20 @@
+import Fastify from 'fastify';
 import { buildApp } from './app.js';
-import { loadConfig } from './config/index.js';
+import { ConfigError, loadConfig, type Config } from './config/index.js';
 
-const config = loadConfig();
+let config: Config;
+try {
+  config = loadConfig();
+} catch (err) {
+  // Конфиг не загрузился, уровень логов неизвестен: пишем через pino с дефолтным уровнем.
+  const log = Fastify({ logger: true }).log;
+  if (err instanceof ConfigError) {
+    log.fatal({ issues: err.issues }, 'invalid configuration');
+  } else {
+    log.fatal({ err }, 'failed to load configuration');
+  }
+  process.exit(1);
+}
 const app = buildApp(config);
 
 async function shutdown(signal: string): Promise<void> {

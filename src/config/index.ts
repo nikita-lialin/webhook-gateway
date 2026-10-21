@@ -1,28 +1,54 @@
-export type NodeEnv = 'development' | 'production' | 'test';
-export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
+import { z } from 'zod';
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  DATABASE_URL: z.url(),
+  REDIS_URL: z.url(),
+  WEBHOOK_SECRET: z.string().min(32),
+  WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  MAX_RETRY_ATTEMPTS: z.coerce.number().int().positive().default(8),
+});
+
+export type NodeEnv = z.infer<typeof envSchema>['NODE_ENV'];
+export type LogLevel = z.infer<typeof envSchema>['LOG_LEVEL'];
 
 export interface Config {
   readonly nodeEnv: NodeEnv;
   readonly port: number;
   readonly logLevel: LogLevel;
+  readonly databaseUrl: string;
+  readonly redisUrl: string;
+  readonly webhookSecret: string;
+  readonly workerConcurrency: number;
+  readonly maxRetryAttempts: number;
 }
 
-const NODE_ENVS: readonly string[] = ['development', 'production', 'test'];
-const LOG_LEVELS: readonly string[] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'];
+/** Ошибка конфигурации: сообщения содержат только имена переменных и причины, но не их значения. */
+export class ConfigError extends Error {
+  constructor(readonly issues: readonly string[]) {
+    super(`Invalid configuration: ${issues.join('; ')}`);
+    this.name = 'ConfigError';
+  }
+}
 
-// Временная ручная проверка; на шаге 2 заменяется zod-схемой.
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const nodeEnv = env.NODE_ENV ?? 'development';
-  const logLevel = env.LOG_LEVEL ?? 'info';
-  const port = Number(env.PORT ?? '3000');
-
-  if (!NODE_ENVS.includes(nodeEnv)) throw new Error('Invalid NODE_ENV');
-  if (!LOG_LEVELS.includes(logLevel)) throw new Error('Invalid LOG_LEVEL');
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error('Invalid PORT');
-
+  const result = envSchema.safeParse(env);
+  if (!result.success) {
+    throw new ConfigError(
+      result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+    );
+  }
+  const e = result.data;
   return Object.freeze({
-    nodeEnv: nodeEnv as NodeEnv,
-    port,
-    logLevel: logLevel as LogLevel,
+    nodeEnv: e.NODE_ENV,
+    port: e.PORT,
+    logLevel: e.LOG_LEVEL,
+    databaseUrl: e.DATABASE_URL,
+    redisUrl: e.REDIS_URL,
+    webhookSecret: e.WEBHOOK_SECRET,
+    workerConcurrency: e.WORKER_CONCURRENCY,
+    maxRetryAttempts: e.MAX_RETRY_ATTEMPTS,
   });
 }
