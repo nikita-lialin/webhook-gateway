@@ -19,6 +19,7 @@ describe('loadConfig', () => {
       logLevel: 'info',
       workerConcurrency: 5,
       maxRetryAttempts: 8,
+      bodyLimitBytes: 1_048_576,
       webhookSecret: SECRET,
     });
     expect(Object.isFrozen(config)).toBe(true);

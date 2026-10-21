@@ -3,6 +3,8 @@ import type { Config } from './config/index.js';
 import type { Pool } from './db/index.js';
 import { registerEndpointRoutes } from './modules/endpoints/routes.js';
 import { registerHealthRoutes } from './modules/health/routes.js';
+import { registerErrorHandler } from './modules/http/errors.js';
+import { registerIngressRoutes } from './modules/ingress/routes.js';
 
 export interface AppDeps {
   /** Пул принадлежит приложению: закрывается в хуке onClose. */
@@ -10,7 +12,7 @@ export interface AppDeps {
 }
 
 export function buildApp(
-  config: Pick<Config, 'logLevel' | 'adminApiKey'>,
+  config: Pick<Config, 'logLevel' | 'adminApiKey' | 'bodyLimitBytes'>,
   deps: AppDeps,
 ): FastifyInstance {
   const app = Fastify({ logger: { level: config.logLevel } });
@@ -22,7 +24,9 @@ export function buildApp(
     await deps.pool.end();
   });
 
+  registerErrorHandler(app);
   registerHealthRoutes(app, deps.pool);
   registerEndpointRoutes(app, { pool: deps.pool, adminApiKey: config.adminApiKey });
+  registerIngressRoutes(app, { pool: deps.pool, bodyLimitBytes: config.bodyLimitBytes });
   return app;
 }

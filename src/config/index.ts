@@ -13,6 +13,7 @@ const envSchema = z.object({
   ADMIN_API_KEY: z.string().min(32),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   MAX_RETRY_ATTEMPTS: z.coerce.number().int().positive().default(8),
+  BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1_048_576),
 });
 
 export type NodeEnv = z.infer<typeof envSchema>['NODE_ENV'];
@@ -31,6 +32,7 @@ export interface Config {
   readonly adminApiKey: string;
   readonly workerConcurrency: number;
   readonly maxRetryAttempts: number;
+  readonly bodyLimitBytes: number;
 }
 
 /** Ошибка конфигурации: сообщения содержат только имена переменных и причины, но не их значения. */
@@ -62,6 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminApiKey: e.ADMIN_API_KEY,
     workerConcurrency: e.WORKER_CONCURRENCY,
     maxRetryAttempts: e.MAX_RETRY_ATTEMPTS,
+    bodyLimitBytes: e.BODY_LIMIT_BYTES,
   });
 }
 

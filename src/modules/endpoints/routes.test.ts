@@ -26,7 +26,7 @@ describe.skipIf(!testDatabaseUrl)('admin API /endpoints', () => {
 
   beforeAll(async () => {
     app = buildApp(
-      { logLevel: 'fatal', adminApiKey: KEY },
+      { logLevel: 'fatal', adminApiKey: KEY, bodyLimitBytes: 1_048_576 },
       { pool: createTestPool(testDatabaseUrl as string) },
     );
     cleanupPool = createTestPool(testDatabaseUrl as string);
