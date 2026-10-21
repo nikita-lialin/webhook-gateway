@@ -15,7 +15,7 @@
 - [x] Шаг 2. Конфигурация и тестовая инфраструктура
 - [x] Шаг 3. Подключение PostgreSQL и механизм миграций
 - [x] Шаг 4. Схема данных (первая миграция)
-- [ ] Шаг 5. Реестр подписчиков (Endpoints)
+- [x] Шаг 5. Реестр подписчиков (Endpoints)
 
 ### Фаза B. Приём вебхуков (Ingress)
 
@@ -43,22 +43,15 @@
 
 ## Текущий шаг
 
-### Шаг 4. Схема данных (первая миграция)
+### Шаг 5. Реестр подписчиков (Endpoints)
 
-Три таблицы, на которых стоит всё остальное:
-
-- `endpoints` — подписчики: `id`, `name`, `source`, `target_url`, `signing_secret`, `is_active`, таймстемпы.
-- `events` — входящие события: `id` (UUID), `endpoint_id`, `idempotency_key`, `payload` (JSONB), `headers` (JSONB),
-  `status` (`pending` / `processing` / `delivered` / `failed` / `dead`, CHECK-ограничение), `attempts_count`,
-  `next_attempt_at`, таймстемпы.
-- `delivery_attempts` — журнал попыток: `event_id`, `attempt_number`, `response_status`, `response_body` (обрезанное),
-  `error`, `duration_ms`, `created_at`.
+Репозиторий и минимальный admin-API: `POST /endpoints`, `GET /endpoints`, `GET /endpoints/:id`,
+`PATCH /endpoints/:id` (вкл/выкл, target_url). Защита — статичный ключ `ADMIN_API_KEY` в заголовке `X-Admin-Api-Key`.
 
 DoD:
 
-- [x] `migrate:up` создаёт таблицы, `migrate:down` чисто откатывает (проверено циклом up → down → up).
-- [x] Индексы: уникальный `(endpoint_id, idempotency_key)`, `(status, next_attempt_at)`, `delivery_attempts(event_id)`,
-      уникальный `(event_id, attempt_number)`.
-- [x] Внешние ключи с явным `ON DELETE` (эндпоинты не удаляются, только выключаются).
-- [x] TypeScript-типы строк — в одном месте (`src/db/types.ts`).
-- [x] После этого шага схема меняется только новыми миграциями.
+- [x] `target_url` валидируется (только http/https).
+- [x] `signing_secret` генерируется сервером (`crypto.randomBytes(32)`), отдаётся один раз в ответе на создание и не попадает в GET.
+- [x] Запрос без ключа → 401; ключ сравнивается через `timingSafeEqual`.
+- [x] Integration-тесты на создание, список, деактивацию и 401.
+- [x] `ADMIN_API_KEY` добавлен в конфиг, `.env.example` и `DEPLOYMENT.md`.

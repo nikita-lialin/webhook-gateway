@@ -10,6 +10,7 @@ const envSchema = z.object({
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   REDIS_URL: z.url(),
   WEBHOOK_SECRET: z.string().min(32),
+  ADMIN_API_KEY: z.string().min(32),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   MAX_RETRY_ATTEMPTS: z.coerce.number().int().positive().default(8),
 });
@@ -27,6 +28,7 @@ export interface Config {
   readonly dbStatementTimeoutMs: number;
   readonly redisUrl: string;
   readonly webhookSecret: string;
+  readonly adminApiKey: string;
   readonly workerConcurrency: number;
   readonly maxRetryAttempts: number;
 }
@@ -57,6 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dbStatementTimeoutMs: e.DB_STATEMENT_TIMEOUT_MS,
     redisUrl: e.REDIS_URL,
     webhookSecret: e.WEBHOOK_SECRET,
+    adminApiKey: e.ADMIN_API_KEY,
     workerConcurrency: e.WORKER_CONCURRENCY,
     maxRetryAttempts: e.MAX_RETRY_ATTEMPTS,
   });
@@ -64,6 +67,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
 /** Для integration-тестов: URL тестовой БД или `undefined`, если он не задан (тесты пропускаются). */
 export function loadTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const parsed = z.url().optional().safeParse(env.TEST_DATABASE_URL || undefined);
+  const parsed = z
+    .url()
+    .optional()
+    .safeParse(env.TEST_DATABASE_URL || undefined);
   return parsed.success ? parsed.data : undefined;
 }

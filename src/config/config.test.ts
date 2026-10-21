@@ -7,6 +7,7 @@ const validEnv = {
   DATABASE_URL: 'postgres://gateway:gateway@localhost:5432/gateway',
   REDIS_URL: 'redis://localhost:6379',
   WEBHOOK_SECRET: SECRET,
+  ADMIN_API_KEY: 'b'.repeat(32),
 };
 
 describe('loadConfig', () => {
@@ -37,9 +38,18 @@ describe('loadConfig', () => {
     expect(() => loadConfig(env)).toThrow(/WEBHOOK_SECRET/);
   });
 
+  it('requires ADMIN_API_KEY of at least 32 chars', () => {
+    const env: NodeJS.ProcessEnv = { ...validEnv };
+    delete env.ADMIN_API_KEY;
+    expect(() => loadConfig(env)).toThrow(/ADMIN_API_KEY/);
+    expect(() => loadConfig({ ...validEnv, ADMIN_API_KEY: 'short' })).toThrow(/ADMIN_API_KEY/);
+  });
+
   it('fails on wrong type', () => {
     expect(() => loadConfig({ ...validEnv, PORT: 'abc' })).toThrow(/PORT/);
-    expect(() => loadConfig({ ...validEnv, MAX_RETRY_ATTEMPTS: '0' })).toThrow(/MAX_RETRY_ATTEMPTS/);
+    expect(() => loadConfig({ ...validEnv, MAX_RETRY_ATTEMPTS: '0' })).toThrow(
+      /MAX_RETRY_ATTEMPTS/,
+    );
   });
 
   it('does not leak values into the error message', () => {

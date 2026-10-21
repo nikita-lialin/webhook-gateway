@@ -10,7 +10,7 @@ describe('GET /health', () => {
       dbPoolMax: 1,
       dbStatementTimeoutMs: 1_000,
     });
-    const app = buildApp({ logLevel: 'fatal' }, { pool });
+    const app = buildApp({ logLevel: 'fatal', adminApiKey: 'k'.repeat(32) }, { pool });
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: 'degraded', services: { database: 'disconnected' } });
@@ -18,7 +18,10 @@ describe('GET /health', () => {
   });
 
   it.skipIf(!testDatabaseUrl)('returns 200 and connected when the database is up', async () => {
-    const app = buildApp({ logLevel: 'fatal' }, { pool: createTestPool(testDatabaseUrl as string) });
+    const app = buildApp(
+      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32) },
+      { pool: createTestPool(testDatabaseUrl as string) },
+    );
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: 'ok', services: { database: 'connected' } });
@@ -31,7 +34,7 @@ describe('GET /health', () => {
       dbPoolMax: 1,
       dbStatementTimeoutMs: 1_000,
     });
-    const app = buildApp({ logLevel: 'fatal' }, { pool });
+    const app = buildApp({ logLevel: 'fatal', adminApiKey: 'k'.repeat(32) }, { pool });
     await app.ready();
     await app.close();
     expect(pool.ended).toBe(true);
