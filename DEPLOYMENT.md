@@ -42,6 +42,9 @@ curl http://localhost:3000/health
 | `PORT` | число | `3000` | нет | порт HTTP-сервера `app` | 1 |
 | `LOG_LEVEL` | `fatal` … `trace` | `info` | нет | уровень логов pino | 1 |
 | `DATABASE_URL` | URL | — | да | строка подключения PostgreSQL | 1 |
+| `TEST_DATABASE_URL` | URL | — | нет | БД `gateway_test` для integration-тестов; без неё они пропускаются | 3 |
+| `DB_POOL_MAX` | целое > 0 | `10` | нет | максимум соединений в пуле PostgreSQL | 3 |
+| `DB_STATEMENT_TIMEOUT_MS` | целое > 0 | `10000` | нет | `statement_timeout` для каждого соединения | 3 |
 | `REDIS_URL` | URL | — | да | строка подключения Redis | 1 |
 | `WEBHOOK_SECRET` | строка, ≥ 32 символов | — | да | секрет проверки HMAC-подписи входящих вебхуков | 1 |
 | `WORKER_CONCURRENCY` | целое > 0 | `5` | нет | число параллельных доставок в одном воркере | 1 |
@@ -79,14 +82,32 @@ docker compose exec app npm run migrate:up
 docker compose exec app npm run migrate:status
 ```
 
+## Миграции
+
+Файлы — SQL в `migrations/` (`-- Up Migration` / `-- Down Migration`), раннер — node-pg-migrate.
+Новая миграция: `npm run migrate:create -- <имя>`. Применённые миграции не редактируются.
+`migrate:status` печатает JSON `{ applied, pending }`.
+
 ## Тесты
 
-Integration-тесты работают с отдельной базой `gateway_test` (создаётся init-скриптом postgres)
-и тем же Redis с отдельным префиксом очередей _(шаг 3)_.
+Integration-тесты работают с отдельной базой `gateway_test`. Её создаёт init-скрипт
+`docker/postgres/01-create-test-db.sql`, но postgres выполняет такие скрипты **только на пустом volume**.
+Если volume уже существует:
 
 ```bash
-docker compose exec app npm test
+docker compose exec postgres psql -U gateway -d gateway -c "CREATE DATABASE gateway_test OWNER gateway"
+# или пересоздать данные: docker compose down -v && docker compose up --build
 ```
+
+Образ `app` — runtime без dev-зависимостей, поэтому тесты запускаются на хосте (порт 5432 проброшен):
+
+```powershell
+$env:TEST_DATABASE_URL = "postgres://gateway:gateway@localhost:5432/gateway_test"
+npm test
+```
+
+Без `TEST_DATABASE_URL` integration-тесты пропускаются (unit-тесты идут всегда).
+Тот же Redis с отдельным префиксом очередей — _(шаг 9)_.
 
 ## Контракт `GET /health`
 
@@ -116,8 +137,7 @@ docker compose exec app npm test
 }
 ```
 
-`services.database` появляется на шаге 3, `services.redis` — на шаге 9. До этого `/health`
-возвращает `{ "status": "ok" }`.
+`services.database` появился на шаге 3, `services.redis` появится на шаге 9. До шага 9 Redis в ответе нет.
 
 ## Логи
 

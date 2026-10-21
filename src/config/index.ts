@@ -5,6 +5,9 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.url(),
+  TEST_DATABASE_URL: z.url().optional(),
+  DB_POOL_MAX: z.coerce.number().int().positive().default(10),
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   REDIS_URL: z.url(),
   WEBHOOK_SECRET: z.string().min(32),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
@@ -19,6 +22,9 @@ export interface Config {
   readonly port: number;
   readonly logLevel: LogLevel;
   readonly databaseUrl: string;
+  readonly testDatabaseUrl: string | undefined;
+  readonly dbPoolMax: number;
+  readonly dbStatementTimeoutMs: number;
   readonly redisUrl: string;
   readonly webhookSecret: string;
   readonly workerConcurrency: number;
@@ -46,9 +52,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: e.PORT,
     logLevel: e.LOG_LEVEL,
     databaseUrl: e.DATABASE_URL,
+    testDatabaseUrl: e.TEST_DATABASE_URL,
+    dbPoolMax: e.DB_POOL_MAX,
+    dbStatementTimeoutMs: e.DB_STATEMENT_TIMEOUT_MS,
     redisUrl: e.REDIS_URL,
     webhookSecret: e.WEBHOOK_SECRET,
     workerConcurrency: e.WORKER_CONCURRENCY,
     maxRetryAttempts: e.MAX_RETRY_ATTEMPTS,
   });
+}
+
+/** Для integration-тестов: URL тестовой БД или `undefined`, если он не задан (тесты пропускаются). */
+export function loadTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const parsed = z.url().optional().safeParse(env.TEST_DATABASE_URL || undefined);
+  return parsed.success ? parsed.data : undefined;
 }
