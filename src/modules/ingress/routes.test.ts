@@ -41,6 +41,9 @@ describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
   });
 
   afterAll(async () => {
+    await cleanupPool.query('DELETE FROM events WHERE endpoint_id = ANY($1::uuid[])', [
+      [activeId, inactiveId],
+    ]);
     await cleanupPool.query('DELETE FROM endpoints WHERE id = ANY($1::uuid[])', [
       [activeId, inactiveId],
     ]);
@@ -56,9 +59,76 @@ describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
       payload,
     });
 
-  it('accepts valid JSON with 202', async () => {
+  it('accepts valid JSON with 202 and an eventId', async () => {
     const res = await post(activeId, '{"a":1}');
     expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ eventId: expect.any(String) });
+  });
+
+  describe('idempotency', () => {
+    const countEvents = async (key: string) =>
+      (
+        await cleanupPool.query<{ n: string }>(
+          'SELECT count(*) AS n FROM events WHERE endpoint_id = $1 AND idempotency_key = $2',
+          [activeId, key],
+        )
+      ).rows[0]?.n;
+
+    it('returns 200 duplicate with the same eventId on repeat, without a new row', async () => {
+      const body = '{"dup":1}';
+      const headers = { ...signed(body), 'idempotency-key': 'key-repeat' };
+      const first = await post(activeId, body, headers);
+      const second = await post(activeId, body, headers);
+      expect(first.statusCode).toBe(202);
+      expect(second.statusCode).toBe(200);
+      expect(second.json()).toEqual({ eventId: first.json().eventId, duplicate: true });
+      expect(await countEvents('key-repeat')).toBe('1');
+    });
+
+    it('falls back to the SHA-256 of the raw body without the header', async () => {
+      const body = '{"hash":"me"}';
+      const first = await post(activeId, body);
+      const second = await post(activeId, body);
+      expect(first.statusCode).toBe(202);
+      expect(second.statusCode).toBe(200);
+      expect(second.json().eventId).toBe(first.json().eventId);
+    });
+
+    it('creates exactly one row for 3 concurrent requests with one key', async () => {
+      const body = '{"race":1}';
+      const headers = { ...signed(body), 'idempotency-key': 'key-race' };
+      const results = await Promise.all([1, 2, 3].map(() => post(activeId, body, headers)));
+      expect(results.filter((r) => r.statusCode === 202)).toHaveLength(1);
+      expect(new Set(results.map((r) => r.json().eventId)).size).toBe(1);
+      expect(await countEvents('key-race')).toBe('1');
+    });
+
+    it('rejects an empty or oversized Idempotency-Key with 400', async () => {
+      const body = '{"k":1}';
+      for (const key of [' ', 'k'.repeat(256)]) {
+        const res = await post(activeId, body, { ...signed(body), 'idempotency-key': key });
+        expect(res.statusCode).toBe(400);
+      }
+    });
+  });
+
+  it('stores only whitelisted headers', async () => {
+    const body = '{"h":1}';
+    const res = await post(activeId, body, {
+      ...signed(body),
+      authorization: 'Bearer secret',
+      cookie: 'sid=1',
+      'user-agent': 'tester',
+    });
+    const { rows } = await cleanupPool.query<{ headers: Record<string, string> }>(
+      'SELECT headers FROM events WHERE id = $1',
+      [res.json().eventId],
+    );
+    const stored = rows[0]?.headers ?? {};
+    expect(stored['user-agent']).toBe('tester');
+    for (const k of ['x-webhook-signature', 'authorization', 'cookie']) {
+      expect(stored).not.toHaveProperty(k);
+    }
   });
 
   it('returns 413 when the body exceeds the limit', async () => {

@@ -1,11 +1,33 @@
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Pool } from '../../db/index.js';
 import { findEndpoint } from '../endpoints/repository.js';
+import { insertEventIdempotent } from '../events/repository.js';
 import { sendError } from '../http/errors.js';
 import { verifySignature } from './signature.js';
 
 const params = z.strictObject({ endpointId: z.uuid() });
+
+const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
+
+// Только безопасные заголовки: без подписи, Authorization и cookie.
+const STORED_HEADERS = [
+  'content-type',
+  'user-agent',
+  'idempotency-key',
+  'x-request-id',
+  'x-webhook-timestamp',
+] as const;
+
+function pickStoredHeaders(headers: Record<string, string | string[] | undefined>) {
+  const picked: Record<string, string> = {};
+  for (const name of STORED_HEADERS) {
+    const value = headers[name];
+    if (typeof value === 'string') picked[name] = value;
+  }
+  return picked;
+}
 
 function singleHeader(value: string | string[] | undefined): string | undefined {
   return typeof value === 'string' ? value : undefined;
@@ -64,11 +86,42 @@ export function registerIngressRoutes(
             'Content-Type must be application/json',
           );
         }
-        const endpoint = await findEndpoint(deps.pool, p.data.endpointId);
+        let endpoint;
+        try {
+          endpoint = await findEndpoint(deps.pool, p.data.endpointId);
+        } catch (err) {
+          request.log.error({ err }, 'failed to load endpoint');
+          return sendError(reply, 503, 'service_unavailable', 'Temporarily unable to store event');
+        }
         if (!endpoint?.is_active) {
           return sendError(reply, 404, 'not_found', 'Endpoint not found');
         }
-        return reply.code(202).send({ status: 'accepted' });
+
+        const rawKey = singleHeader(request.headers['idempotency-key'])?.trim();
+        if (request.headers['idempotency-key'] !== undefined && !rawKey) {
+          return sendError(reply, 400, 'validation_error', 'Idempotency-Key must not be empty');
+        }
+        if (rawKey && rawKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+          return sendError(reply, 400, 'validation_error', 'Idempotency-Key is too long');
+        }
+        const idempotencyKey =
+          rawKey ?? createHash('sha256').update(request.body).digest('hex');
+
+        try {
+          const saved = await insertEventIdempotent(deps.pool, {
+            endpointId: endpoint.id,
+            idempotencyKey,
+            payloadJson: request.body.toString('utf8'),
+            headers: pickStoredHeaders(request.headers),
+          });
+          if (saved.duplicate) {
+            return reply.code(200).send({ eventId: saved.eventId, duplicate: true });
+          }
+          return reply.code(202).send({ eventId: saved.eventId });
+        } catch (err) {
+          request.log.error({ err, endpointId: endpoint.id }, 'failed to store event');
+          return sendError(reply, 503, 'service_unavailable', 'Temporarily unable to store event');
+        }
       },
     );
   });
