@@ -88,6 +88,16 @@ docker compose exec app npm run migrate:status
 Новая миграция: `npm run migrate:create -- <имя>`. Применённые миграции не редактируются.
 `migrate:status` печатает JSON `{ applied, pending }`.
 
+### Схема данных _(шаг 4)_
+
+Первая миграция `1792600000000_init-schema.sql` создаёт три таблицы; типы строк — `src/db/types.ts`.
+
+| Таблица | Назначение | Ключевое |
+| --- | --- | --- |
+| `endpoints` | подписчики | не удаляются, только `is_active = false` (`events.endpoint_id` — `ON DELETE RESTRICT`) |
+| `events` | входящие события | уникальный `(endpoint_id, idempotency_key)`; `status` — CHECK: `pending`, `processing`, `delivered`, `failed`, `dead` |
+| `delivery_attempts` | журнал попыток | уникальный `(event_id, attempt_number)`; удаляется каскадом вместе с событием |
+
 ## Тесты
 
 Integration-тесты работают с отдельной базой `gateway_test`. Её создаёт init-скрипт

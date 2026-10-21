@@ -14,7 +14,7 @@
 - [x] Шаг 1. Каркас приложения и Docker
 - [x] Шаг 2. Конфигурация и тестовая инфраструктура
 - [x] Шаг 3. Подключение PostgreSQL и механизм миграций
-- [ ] Шаг 4. Схема данных (первая миграция)
+- [x] Шаг 4. Схема данных (первая миграция)
 - [ ] Шаг 5. Реестр подписчиков (Endpoints)
 
 ### Фаза B. Приём вебхуков (Ingress)
@@ -43,13 +43,22 @@
 
 ## Текущий шаг
 
-### Шаг 3. Подключение PostgreSQL и механизм миграций
+### Шаг 4. Схема данных (первая миграция)
 
-Схем таблиц ещё нет.
+Три таблицы, на которых стоит всё остальное:
+
+- `endpoints` — подписчики: `id`, `name`, `source`, `target_url`, `signing_secret`, `is_active`, таймстемпы.
+- `events` — входящие события: `id` (UUID), `endpoint_id`, `idempotency_key`, `payload` (JSONB), `headers` (JSONB),
+  `status` (`pending` / `processing` / `delivered` / `failed` / `dead`, CHECK-ограничение), `attempts_count`,
+  `next_attempt_at`, таймстемпы.
+- `delivery_attempts` — журнал попыток: `event_id`, `attempt_number`, `response_status`, `response_body` (обрезанное),
+  `error`, `duration_ms`, `created_at`.
 
 DoD:
 
-- [x] Три команды миграций работают внутри контейнера `app` (`docker compose exec app npm run migrate:up`).
-- [x] `/health` возвращает `services.database: "connected"` или 503 с `"disconnected"`, если БД лежит.
-- [x] Пул закрывается при остановке (хук `onClose`).
-- [x] Integration-тесты идут на отдельной БД `gateway_test`, создаваемой init-скриптом postgres; команда запуска описана в `DEPLOYMENT.md`.
+- [x] `migrate:up` создаёт таблицы, `migrate:down` чисто откатывает (проверено циклом up → down → up).
+- [x] Индексы: уникальный `(endpoint_id, idempotency_key)`, `(status, next_attempt_at)`, `delivery_attempts(event_id)`,
+      уникальный `(event_id, attempt_number)`.
+- [x] Внешние ключи с явным `ON DELETE` (эндпоинты не удаляются, только выключаются).
+- [x] TypeScript-типы строк — в одном месте (`src/db/types.ts`).
+- [x] После этого шага схема меняется только новыми миграциями.
