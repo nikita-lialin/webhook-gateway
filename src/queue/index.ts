@@ -63,6 +63,22 @@ export async function enqueueDelivery(dq: DeliveryQueue, eventId: string): Promi
   );
 }
 
+/**
+ * Ставит событие заново, только если задачи в Redis нет (потеряна вместе с Redis или не была поставлена).
+ * Живая задача (waiting/delayed/active) не трогается; отработавшая (completed/failed) удаляется, иначе
+ * BullMQ отбросит новую с тем же jobId как дубль. `true` — задача поставлена.
+ */
+export async function requeueIfLost(dq: DeliveryQueue, eventId: string): Promise<boolean> {
+  const job = await withTimeout(dq.queue.getJob(eventId), dq.timeoutMs, 'get job');
+  if (job) {
+    const state = await withTimeout(job.getState(), dq.timeoutMs, 'get job state');
+    if (state !== 'completed' && state !== 'failed') return false;
+    await withTimeout(job.remove(), dq.timeoutMs, 'remove job');
+  }
+  await enqueueDelivery(dq, eventId);
+  return true;
+}
+
 export interface DeadLetterData {
   eventId: string;
   endpointId: string;
@@ -112,6 +128,35 @@ export function createDeliveryWorker(
     concurrency: config.workerConcurrency,
     settings: { backoffStrategy: options.backoffStrategy },
   });
+}
+
+export const SWEEPER_QUEUE_NAME = 'webhook-sweeper';
+const SWEEPER_SCHEDULER_ID = 'recovery-sweep';
+
+/**
+ * Периодический запуск sweeper: repeatable job с фиксированным id — в Redis он один, сколько бы
+ * воркеров ни стартовало, и каждый тик обрабатывает ровно один из них. Возвращает функцию остановки.
+ */
+export async function startSweeperSchedule(
+  config: { redisUrl: string; sweeperIntervalMs: number },
+  handler: () => Promise<void>,
+  onError: (err: Error) => void,
+  options: { name?: string } = {},
+): Promise<() => Promise<void>> {
+  const name = options.name ?? SWEEPER_QUEUE_NAME;
+  const connection = parseRedisUrl(config.redisUrl);
+  const queue = new Queue(name, {
+    connection,
+    defaultJobOptions: { removeOnComplete: true, removeOnFail: 10 },
+  });
+  queue.on('error', onError);
+  const worker = new Worker(name, handler, { connection, concurrency: 1 });
+  worker.on('error', onError);
+  await queue.upsertJobScheduler(SWEEPER_SCHEDULER_ID, { every: config.sweeperIntervalMs });
+  return async () => {
+    await worker.close();
+    await queue.close();
+  };
 }
 
 export async function closeDeliveryQueue(dq: DeliveryQueue): Promise<void> {

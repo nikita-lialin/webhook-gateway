@@ -1,9 +1,17 @@
 import Fastify from 'fastify';
 import { ConfigError, loadConfig, type Config } from './config/index.js';
 import { createPool } from './db/index.js';
-import { closeDeliveryQueue, createDeliveryWorker, createDlqQueue, enqueueDead } from './queue/index.js';
+import {
+  closeDeliveryQueue,
+  createDeliveryQueue,
+  createDeliveryWorker,
+  createDlqQueue,
+  enqueueDead,
+  startSweeperSchedule,
+} from './queue/index.js';
 import { createDeliveryProcessor } from './modules/delivery/processor.js';
 import { backoffStrategy } from './modules/delivery/retry.js';
+import { sweepStuckEvents } from './modules/recovery/sweeper.js';
 
 let config: Config;
 try {
@@ -22,6 +30,7 @@ try {
 const log = Fastify({ logger: { level: config.logLevel } }).log;
 const pool = createPool(config);
 const dlq = createDlqQueue(config);
+const deliveryQueue = createDeliveryQueue(config);
 const backoff = { baseDelayMs: config.retryBaseDelayMs, maxDelayMs: config.retryMaxDelayMs };
 const worker = createDeliveryWorker(
   config,
@@ -36,12 +45,25 @@ const worker = createDeliveryWorker(
 
 worker.on('error', (err) => log.error({ err }, 'worker error'));
 worker.on('failed', (job, err) => log.error({ err, jobId: job?.id }, 'job failed'));
+const stopSweeper = await startSweeperSchedule(
+  config,
+  async () => {
+    await sweepStuckEvents(pool, deliveryQueue, log, {
+      staleAfterMs: config.sweeperStaleAfterMs,
+      processingTimeoutMs: config.sweeperProcessingTimeoutMs,
+      batchSize: config.sweeperBatchSize,
+    });
+  },
+  (err) => log.error({ err }, 'sweeper error'),
+);
 log.info({ concurrency: config.workerConcurrency }, 'worker started');
 
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'shutting down');
   try {
+    await stopSweeper();
     await worker.close();
+    await closeDeliveryQueue(deliveryQueue);
     await closeDeliveryQueue(dlq);
     await pool.end();
     process.exit(0);

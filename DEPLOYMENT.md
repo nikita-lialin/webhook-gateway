@@ -53,10 +53,14 @@ curl http://localhost:3000/health
 | `RETRY_BASE_DELAY_MS` | целое > 0 | `1000` | нет | база backoff: задержка перед n-м повтором — `base × 2^(n−1)` с full jitter, мс | 12 |
 | `RETRY_MAX_DELAY_MS` | целое ≥ base | `3600000` | нет | потолок задержки повтора (включая `Retry-After` для 429), мс | 12 |
 | `DELIVERY_TIMEOUT_MS` | целое > 0 | `10000` | нет | жёсткий таймаут одного исходящего HTTP-запроса доставки, мс | 11 |
+| `SWEEPER_INTERVAL_MS` | целое > 0 | `30000` | нет | период запуска recovery sweeper (repeatable job в воркере), мс | 14 |
+| `SWEEPER_STALE_AFTER_MS` | целое > 0 | `30000` | нет | через сколько `pending` без задачи в Redis считается потерянным, мс | 14 |
+| `SWEEPER_PROCESSING_TIMEOUT_MS` | целое > 0 | `60000` | нет | через сколько `processing` считается застрявшим; должен быть больше `DELIVERY_TIMEOUT_MS`, мс | 14 |
+| `SWEEPER_BATCH_SIZE` | 1…1000 | `100` | нет | максимум событий за один проход sweeper | 14 |
 | `BODY_LIMIT_BYTES` | целое > 0 | `1048576` | нет | максимальный размер тела `POST /webhooks/:endpointId`; больше → 413 | 6 |
 
 Добавятся по ходу roadmap (описание появится в этой таблице на соответствующем шаге):
-интервал sweeper _(шаг 14)_, лимиты rate limit и `TRUST_PROXY` _(шаг 17)_.
+лимиты rate limit и `TRUST_PROXY` _(шаг 17)_.
 
 Генерация секрета:
 

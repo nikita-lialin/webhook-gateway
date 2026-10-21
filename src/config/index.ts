@@ -17,6 +17,10 @@ const envSchema = z
     RETRY_BASE_DELAY_MS: z.coerce.number().int().positive().default(1_000),
     RETRY_MAX_DELAY_MS: z.coerce.number().int().positive().default(3_600_000),
     DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+    SWEEPER_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+    SWEEPER_STALE_AFTER_MS: z.coerce.number().int().positive().default(30_000),
+    SWEEPER_PROCESSING_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+    SWEEPER_BATCH_SIZE: z.coerce.number().int().positive().max(1_000).default(100),
     BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1_048_576),
   })
   .refine((e) => e.RETRY_MAX_DELAY_MS >= e.RETRY_BASE_DELAY_MS, {
@@ -43,6 +47,10 @@ export interface Config {
   readonly retryBaseDelayMs: number;
   readonly retryMaxDelayMs: number;
   readonly deliveryTimeoutMs: number;
+  readonly sweeperIntervalMs: number;
+  readonly sweeperStaleAfterMs: number;
+  readonly sweeperProcessingTimeoutMs: number;
+  readonly sweeperBatchSize: number;
   readonly bodyLimitBytes: number;
 }
 
@@ -78,6 +86,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     retryBaseDelayMs: e.RETRY_BASE_DELAY_MS,
     retryMaxDelayMs: e.RETRY_MAX_DELAY_MS,
     deliveryTimeoutMs: e.DELIVERY_TIMEOUT_MS,
+    sweeperIntervalMs: e.SWEEPER_INTERVAL_MS,
+    sweeperStaleAfterMs: e.SWEEPER_STALE_AFTER_MS,
+    sweeperProcessingTimeoutMs: e.SWEEPER_PROCESSING_TIMEOUT_MS,
+    sweeperBatchSize: e.SWEEPER_BATCH_SIZE,
     bodyLimitBytes: e.BODY_LIMIT_BYTES,
   });
 }
