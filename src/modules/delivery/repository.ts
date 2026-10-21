@@ -10,7 +10,7 @@ export async function findEndpointById(pool: Pool, id: string): Promise<Endpoint
 
 /**
  * Пишет попытку и меняет статус события в одной транзакции. `attemptNumber` — номер этой попытки;
- * `attempts_count` становится равным ему.
+ * `attempts_count` становится равным ему; `next_attempt_at` — время повтора (или `null`).
  */
 export async function recordAttempt(
   pool: Pool,
@@ -18,6 +18,7 @@ export async function recordAttempt(
   attemptNumber: number,
   result: DispatchResult,
   newStatus: EventStatus,
+  nextAttemptAt: Date | null = null,
 ): Promise<void> {
   await withTransaction(pool, async (client) => {
     await client.query(
@@ -34,8 +35,10 @@ export async function recordAttempt(
       ],
     );
     await client.query(
-      'UPDATE events SET status = $2, attempts_count = $3, updated_at = now() WHERE id = $1',
-      [eventId, newStatus, attemptNumber],
+      `UPDATE events
+         SET status = $2, attempts_count = $3, next_attempt_at = $4, updated_at = now()
+       WHERE id = $1`,
+      [eventId, newStatus, attemptNumber, nextAttemptAt],
     );
   });
 }

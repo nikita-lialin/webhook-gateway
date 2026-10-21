@@ -3,6 +3,7 @@ import { ConfigError, loadConfig, type Config } from './config/index.js';
 import { createPool } from './db/index.js';
 import { createDeliveryWorker } from './queue/index.js';
 import { createDeliveryProcessor } from './modules/delivery/processor.js';
+import { backoffStrategy } from './modules/delivery/retry.js';
 
 let config: Config;
 try {
@@ -20,7 +21,16 @@ try {
 // Fastify используется только как фабрика pino-логгера (тот же JSON-формат, что у app).
 const log = Fastify({ logger: { level: config.logLevel } }).log;
 const pool = createPool(config);
-const worker = createDeliveryWorker(config, createDeliveryProcessor(pool, log, { deliveryTimeoutMs: config.deliveryTimeoutMs }));
+const backoff = { baseDelayMs: config.retryBaseDelayMs, maxDelayMs: config.retryMaxDelayMs };
+const worker = createDeliveryWorker(
+  config,
+  createDeliveryProcessor(pool, log, {
+    deliveryTimeoutMs: config.deliveryTimeoutMs,
+    maxRetryAttempts: config.maxRetryAttempts,
+    ...backoff,
+  }),
+  { backoffStrategy: backoffStrategy(backoff) },
+);
 
 worker.on('error', (err) => log.error({ err }, 'worker error'));
 worker.on('failed', (job, err) => log.error({ err, jobId: job?.id }, 'job failed'));

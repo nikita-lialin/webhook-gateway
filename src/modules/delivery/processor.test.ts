@@ -1,17 +1,20 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { UnrecoverableError } from 'bullmq';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestPool, testDatabaseUrl } from '../../../test/db.js';
 import type { Pool } from '../../db/index.js';
 import type { DeliveryAttemptRow, EventRow } from '../../db/types.js';
 import { insertEventIdempotent } from '../events/repository.js';
 import { createDeliveryProcessor } from './processor.js';
+import { RetryableDeliveryError } from './retry.js';
 
 describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
   let pool: Pool;
   let server: Server;
   let base: string;
   const endpoints: string[] = [];
+  let flakyHits = 0;
   const log = { info: () => undefined, warn: () => undefined };
 
   const makeEvent = async (path: string): Promise<string> => {
@@ -34,7 +37,13 @@ describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
   beforeAll(async () => {
     pool = createTestPool(testDatabaseUrl as string);
     server = createServer((req, res) => {
-      res.writeHead(req.url === '/ok' ? 200 : 500).end('r');
+      if (req.url?.startsWith('/flaky')) {
+        flakyHits += 1;
+        res.writeHead(flakyHits <= 2 ? 500 : 200).end('r');
+        return;
+      }
+      const status = { '/ok': 200, '/bad': 500, '/gone': 404 }[req.url ?? ''] ?? 500;
+      res.writeHead(status).end('r');
     });
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -56,8 +65,13 @@ describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
     return { event: ev.rows[0], attempts: at.rows };
   };
 
-  const run = (eventId: string) =>
-    createDeliveryProcessor(pool, log, { deliveryTimeoutMs: 1_000 })({ data: { eventId } });
+  const run = (eventId: string, maxRetryAttempts = 3) =>
+    createDeliveryProcessor(pool, log, {
+      deliveryTimeoutMs: 1_000,
+      maxRetryAttempts,
+      baseDelayMs: 10,
+      maxDelayMs: 50,
+    })({ data: { eventId } });
 
   it('marks delivered and logs the attempt on 2xx', async () => {
     const id = await makeEvent('/ok');
@@ -68,11 +82,39 @@ describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
     expect(attempts[0]).toMatchObject({ attempt_number: 1, response_status: 200 });
   });
 
-  it('marks failed and logs the attempt on 500', async () => {
+  it('returns to pending with next_attempt_at after a retryable failure', async () => {
     const id = await makeEvent('/bad');
+    await expect(run(id)).rejects.toBeInstanceOf(RetryableDeliveryError);
+    const { event, attempts } = await state(id);
+    expect(event).toMatchObject({ status: 'pending', attempts_count: 1 });
+    expect(event?.next_attempt_at).toBeInstanceOf(Date);
+    expect(attempts[0]).toMatchObject({ response_status: 500, response_body: 'r' });
+  });
+
+  it('fails immediately on a non-retryable 4xx', async () => {
+    const id = await makeEvent('/gone');
+    await expect(run(id)).rejects.toBeInstanceOf(UnrecoverableError);
+    const { event } = await state(id);
+    expect(event).toMatchObject({ status: 'failed', attempts_count: 1, next_attempt_at: null });
+  });
+
+  it('marks failed when retry attempts are exhausted', async () => {
+    const id = await makeEvent('/bad');
+    await expect(run(id, 2)).rejects.toBeInstanceOf(RetryableDeliveryError);
+    await expect(run(id, 2)).rejects.toBeInstanceOf(UnrecoverableError);
+    const { event, attempts } = await state(id);
+    expect(event).toMatchObject({ status: 'failed', attempts_count: 2 });
+    expect(attempts).toHaveLength(2);
+  });
+
+  it('delivers on the third attempt after two 500s', async () => {
+    flakyHits = 0;
+    const id = await makeEvent('/flaky');
+    await expect(run(id)).rejects.toBeInstanceOf(RetryableDeliveryError);
+    await expect(run(id)).rejects.toBeInstanceOf(RetryableDeliveryError);
     await run(id);
     const { event, attempts } = await state(id);
-    expect(event).toMatchObject({ status: 'failed', attempts_count: 1 });
-    expect(attempts[0]).toMatchObject({ response_status: 500, response_body: 'r' });
+    expect(event).toMatchObject({ status: 'delivered', attempts_count: 3, next_attempt_at: null });
+    expect(attempts.map((a) => a.attempt_number).sort()).toEqual([1, 2, 3]);
   });
 });

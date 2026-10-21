@@ -19,6 +19,8 @@ describe('loadConfig', () => {
       logLevel: 'info',
       workerConcurrency: 5,
       maxRetryAttempts: 8,
+      retryBaseDelayMs: 1_000,
+      retryMaxDelayMs: 3_600_000,
       bodyLimitBytes: 1_048_576,
       webhookSecret: SECRET,
     });
@@ -51,6 +53,12 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...validEnv, MAX_RETRY_ATTEMPTS: '0' })).toThrow(
       /MAX_RETRY_ATTEMPTS/,
     );
+  });
+
+  it('rejects a retry ceiling below the base delay', () => {
+    expect(() =>
+      loadConfig({ ...validEnv, RETRY_BASE_DELAY_MS: '5000', RETRY_MAX_DELAY_MS: '1000' }),
+    ).toThrow(/RETRY_MAX_DELAY_MS/);
   });
 
   it('does not leak values into the error message', () => {

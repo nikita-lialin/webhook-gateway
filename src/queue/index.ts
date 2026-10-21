@@ -1,4 +1,4 @@
-import { Queue, Worker, type Job } from 'bullmq';
+import { Queue, Worker, type BackoffStrategy, type Job } from 'bullmq';
 
 export const DELIVERY_QUEUE_NAME = 'webhook-delivery';
 export const DEFAULT_ENQUEUE_TIMEOUT_MS = 2_000;
@@ -7,6 +7,8 @@ const KEEP_FAILED = { age: 7 * 24 * 3_600, count: 5_000 };
 
 export interface DeliveryQueue {
   readonly queue: Queue;
+  /** Число попыток задачи (BullMQ `attempts`): первая отправка + повторы. */
+  readonly maxAttempts: number;
   readonly timeoutMs: number;
 }
 
@@ -23,7 +25,7 @@ function parseRedisUrl(url: string) {
 }
 
 export function createDeliveryQueue(
-  config: { redisUrl: string },
+  config: { redisUrl: string; maxRetryAttempts?: number },
   options: { name?: string; timeoutMs?: number } = {},
 ): DeliveryQueue {
   const queue = new Queue(options.name ?? DELIVERY_QUEUE_NAME, {
@@ -32,7 +34,11 @@ export function createDeliveryQueue(
   });
   // Без обработчика ошибка соединения станет unhandled 'error'; недоступность видна в enqueue и /health.
   queue.on('error', () => undefined);
-  return { queue, timeoutMs: options.timeoutMs ?? DEFAULT_ENQUEUE_TIMEOUT_MS };
+  return {
+    queue,
+    maxAttempts: config.maxRetryAttempts ?? 1,
+    timeoutMs: options.timeoutMs ?? DEFAULT_ENQUEUE_TIMEOUT_MS,
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -46,7 +52,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
 /** В задаче только eventId; jobId = eventId, поэтому повторная постановка дубля не создаёт. */
 export async function enqueueDelivery(dq: DeliveryQueue, eventId: string): Promise<void> {
   await withTimeout(
-    dq.queue.add('deliver', { eventId }, { jobId: eventId }),
+    dq.queue.add(
+      'deliver',
+      { eventId },
+      { jobId: eventId, attempts: dq.maxAttempts, backoff: { type: 'custom' } },
+    ),
     dq.timeoutMs,
     'enqueue',
   );
@@ -70,11 +80,12 @@ export interface DeliveryJobData {
 export function createDeliveryWorker(
   config: { redisUrl: string; workerConcurrency: number },
   handler: (job: Job<DeliveryJobData>) => Promise<void>,
-  options: { name?: string } = {},
+  options: { name?: string; backoffStrategy?: BackoffStrategy } = {},
 ): Worker<DeliveryJobData> {
   return new Worker<DeliveryJobData>(options.name ?? DELIVERY_QUEUE_NAME, handler, {
     connection: parseRedisUrl(config.redisUrl),
     concurrency: config.workerConcurrency,
+    settings: { backoffStrategy: options.backoffStrategy },
   });
 }
 

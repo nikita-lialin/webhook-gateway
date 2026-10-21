@@ -1,5 +1,6 @@
 import type { EndpointRow, EventRow } from '../../db/types.js';
 import { computeSignature } from '../ingress/signature.js';
+import { parseRetryAfter } from './retry.js';
 
 export const MAX_RESPONSE_BODY_BYTES = 4096;
 const MAX_ERROR_LENGTH = 500;
@@ -12,6 +13,8 @@ export interface DispatchResult {
   durationMs: number;
   /** 2xx. Редиректы и прочее — неуспех. */
   ok: boolean;
+  /** Разобранный `Retry-After` ответа (мс); `null`, если заголовка нет. */
+  retryAfterMs: number | null;
 }
 
 /** Читает не больше `limit` байт потоком и отменяет остаток, не загружая тело целиком. */
@@ -79,6 +82,7 @@ export async function dispatch(
       error: null,
       durationMs: Date.now() - started,
       ok: res.status >= 200 && res.status < 300,
+      retryAfterMs: parseRetryAfter(res.headers.get('retry-after')),
     };
   } catch (err) {
     return {
@@ -87,6 +91,7 @@ export async function dispatch(
       error: describeError(err, options.timeoutMs),
       durationMs: Date.now() - started,
       ok: false,
+      retryAfterMs: null,
     };
   }
 }
