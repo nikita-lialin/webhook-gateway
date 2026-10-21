@@ -51,16 +51,29 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
 }
 
 /** В задаче только eventId; jobId = eventId, поэтому повторная постановка дубля не создаёт. */
-export async function enqueueDelivery(dq: DeliveryQueue, eventId: string): Promise<void> {
+export async function enqueueDelivery(
+  dq: DeliveryQueue,
+  eventId: string,
+  jobId: string = eventId,
+): Promise<void> {
   await withTimeout(
     dq.queue.add(
       'deliver',
       { eventId },
-      { jobId: eventId, attempts: dq.maxAttempts, backoff: { type: 'custom' } },
+      { jobId, attempts: dq.maxAttempts, backoff: { type: 'custom' } },
     ),
     dq.timeoutMs,
     'enqueue',
   );
+}
+
+/** Replay: свежий jobId `<eventId>:replay:<n>`, иначе BullMQ отбросит задачу как дубль отработавшей. */
+export async function enqueueReplay(
+  dq: DeliveryQueue,
+  eventId: string,
+  replayNumber: number,
+): Promise<void> {
+  await enqueueDelivery(dq, eventId, `${eventId}:replay:${replayNumber}`);
 }
 
 /**

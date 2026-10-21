@@ -37,7 +37,11 @@ export function buildApp(
   registerErrorHandler(app);
   registerHealthRoutes(app, deps.pool, deps.queue);
   registerEndpointRoutes(app, { pool: deps.pool, adminApiKey: config.adminApiKey });
-  registerEventRoutes(app, { pool: deps.pool, adminApiKey: config.adminApiKey });
+  registerEventRoutes(app, {
+    pool: deps.pool,
+    queue: deps.queue,
+    adminApiKey: config.adminApiKey,
+  });
   registerIngressRoutes(app, {
     pool: deps.pool,
     queue: deps.queue,

@@ -22,6 +22,10 @@ export interface EventRow {
   headers: Record<string, string | string[]>;
   status: EventStatus;
   attempts_count: number;
+  /** Сколько раз событие переотправляли вручную (replay). */
+  replay_count: number;
+  /** Значение `attempts_count` на начало текущего цикла доставки; попытки цикла = attempts_count − offset. */
+  cycle_attempts_offset: number;
   next_attempt_at: Date | null;
   created_at: Date;
   updated_at: Date;

@@ -62,9 +62,11 @@ export function createDeliveryProcessor(
       ? await dispatch(event, endpoint, { timeoutMs: options.deliveryTimeoutMs })
       : ENDPOINT_MISSING;
     const retryable = !result.ok && isRetryable(result);
-    const retry = retryable && attemptNumber < options.maxRetryAttempts;
+    // Лимит и backoff считаются по текущему циклу: после replay отсчёт идёт заново, нумерация попыток — сквозная.
+    const cycleAttempt = attemptNumber - event.cycle_attempts_offset;
+    const retry = retryable && cycleAttempt < options.maxRetryAttempts;
     const dead = retryable && !retry;
-    const delayMs = retry ? computeBackoffDelay(attemptNumber, options, result.retryAfterMs) : null;
+    const delayMs = retry ? computeBackoffDelay(cycleAttempt, options, result.retryAfterMs) : null;
     const status = result.ok ? 'delivered' : retry ? 'pending' : dead ? 'dead' : 'failed';
     const nextAttemptAt = delayMs === null ? null : new Date(Date.now() + delayMs);
     await recordAttempt(pool, eventId, attemptNumber, result, status, nextAttemptAt);

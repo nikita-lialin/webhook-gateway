@@ -57,6 +57,27 @@ export async function claimEventForProcessing(
   return result.rows[0] ?? null;
 }
 
+const REPLAYABLE_STATUSES = ['failed', 'dead', 'delivered'] as const;
+
+/**
+ * Атомарно начинает новый цикл доставки: `pending`, `next_attempt_at` сброшен, попытки цикла обнулены
+ * (offset = attempts_count; сквозная нумерация в delivery_attempts продолжается). Условие по статусу и
+ * активности эндпоинта — в самом UPDATE, поэтому два параллельных replay не пройдут оба.
+ * Возвращает новый `replay_count` или `null`, если условие не выполнено.
+ */
+export async function startReplay(pool: Pool, eventId: string): Promise<number | null> {
+  const result = await pool.query<{ replay_count: number }>(
+    `UPDATE events SET status = 'pending', next_attempt_at = NULL,
+            cycle_attempts_offset = attempts_count, replay_count = replay_count + 1,
+            updated_at = now()
+     WHERE id = $1 AND status = ANY($2::text[])
+       AND EXISTS (SELECT 1 FROM endpoints WHERE id = events.endpoint_id AND is_active)
+     RETURNING replay_count`,
+    [eventId, REPLAYABLE_STATUSES],
+  );
+  return result.rows[0]?.replay_count ?? null;
+}
+
 export interface EventListFilter {
   status?: EventStatus;
   endpointId?: string;
@@ -78,7 +99,7 @@ export interface EventPage {
 }
 
 const SUMMARY_COLUMNS =
-  'id, endpoint_id, idempotency_key, status, attempts_count, next_attempt_at, created_at, updated_at';
+  'id, endpoint_id, idempotency_key, status, attempts_count, replay_count, cycle_attempts_offset, next_attempt_at, created_at, updated_at';
 
 /** Keyset-пагинация по (created_at DESC, id DESC); индекс events_created_at_id_idx. */
 export async function listEvents(

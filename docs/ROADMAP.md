@@ -35,7 +35,7 @@
 ### Фаза D. Логи, Replay, усиление и сдача
 
 - [x] Шаг 15. Logs API (только чтение)
-- [ ] Шаг 16. Ручной Replay
+- [x] Шаг 16. Ручной Replay
 - [ ] Шаг 17. Усиление: rate limiting и graceful shutdown API
 - [ ] Шаг 18. E2E-сценарий, аудит «Адвокат дьявола» и документация
 
@@ -43,15 +43,15 @@
 
 ## Текущий шаг
 
-### Шаг 8. Сохранение события и идемпотентность
+### Шаг 16. Ручной Replay
 
-После проверки подписи событие пишется в `events` со статусом `pending`. Ключ идемпотентности — заголовок
-`Idempotency-Key`, а без него — SHA-256 от сырого тела. Защита от гонки — базой:
-`INSERT … ON CONFLICT (endpoint_id, idempotency_key) DO NOTHING RETURNING id`, затем `SELECT` существующего id.
+`POST /events/:id/replay` для `failed`, `dead` или `delivered`: статус → `pending`, счётчик попыток текущего цикла
+обнуляется (`cycle_attempts_offset = attempts_count`), история сохраняется. Новый jobId `<eventId>:replay:<n>`.
 
 DoD:
 
-- [x] Первый запрос → 202 с `{ eventId }`; повтор с тем же ключом → 200 с тем же `eventId` и `duplicate: true`, новой строки нет.
-- [x] Integration-тест: 3 одновременных запроса с одним ключом дают ровно одну строку.
-- [x] Сохраняются только заголовки из whitelist, без подписи, `Authorization` и cookie.
-- [x] Ошибка БД → 503 и запись в логе; клиент повторит, идемпотентность защитит от дубля.
+- [x] Replay события в `pending`/`processing` → 409.
+- [x] Смена статуса — атомарный `UPDATE … WHERE status IN (…)`.
+- [x] Номера попыток после replay продолжают нумерацию в `delivery_attempts`.
+- [x] Решение по выключенному эндпоинту зафиксировано: 409.
+- [x] Integration-тест: `dead` → replay → получатель отвечает 200 → `delivered`.

@@ -107,6 +107,14 @@ docker compose exec app npm run migrate:status
 | `events` | входящие события | уникальный `(endpoint_id, idempotency_key)`; `status` — CHECK: `pending`, `processing`, `delivered`, `failed`, `dead` |
 | `delivery_attempts` | журнал попыток | уникальный `(event_id, attempt_number)`; удаляется каскадом вместе с событием |
 
+### Ручной replay _(шаг 16)_
+
+`POST /events/:id/replay` (заголовок `X-Admin-Api-Key`) переотправляет событие в статусе `failed`, `dead` или `delivered`.
+Ответ `202 { eventId, status: "pending", replay: n }`; `404` — события нет; `409` — статус `pending`/`processing` или эндпоинт выключен.
+Миграция `1792800000000_events-replay-cycle.sql` добавляет `events.replay_count` и `events.cycle_attempts_offset`:
+`attempts_count` и `attempt_number` в журнале остаются сквозными, а лимит `MAX_RETRY_ATTEMPTS` и backoff считаются от начала цикла.
+Задача ставится с jobId `<eventId>:replay:<n>`. Если Redis недоступен, событие остаётся `pending` и его подберёт recovery sweeper.
+
 ## Тесты
 
 Integration-тесты работают с отдельной базой `gateway_test`. Её создаёт init-скрипт

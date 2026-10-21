@@ -4,7 +4,15 @@ import type { Pool } from '../../db/index.js';
 import { EVENT_STATUSES } from '../../db/types.js';
 import { createAdminAuth } from '../endpoints/auth.js';
 import { sendError } from '../http/errors.js';
-import { findEvent, listAttempts, listEvents, type EventCursor } from './repository.js';
+import { enqueueReplay, type DeliveryQueue } from '../../queue/index.js';
+import { findEndpoint } from '../endpoints/repository.js';
+import {
+  findEvent,
+  listAttempts,
+  listEvents,
+  startReplay,
+  type EventCursor,
+} from './repository.js';
 
 const idParams = z.strictObject({ id: z.uuid() });
 
@@ -39,7 +47,7 @@ export function decodeCursor(raw: string): EventCursor | null {
 
 export function registerEventRoutes(
   app: FastifyInstance,
-  deps: { pool: Pool; adminApiKey: string },
+  deps: { pool: Pool; queue: DeliveryQueue; adminApiKey: string },
 ): void {
   const { pool } = deps;
 
@@ -67,6 +75,35 @@ export function registerEventRoutes(
       if (!params.success) return invalid(reply, params.error);
       const event = await findEvent(pool, params.data.id);
       return event ?? sendError(reply, 404, 'not_found', 'Event not found');
+    });
+
+    admin.post('/events/:id/replay', async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, params.error);
+      const { id } = params.data;
+      const replayNumber = await startReplay(pool, id);
+      if (replayNumber === null) {
+        const event = await findEvent(pool, id);
+        if (!event) return sendError(reply, 404, 'not_found', 'Event not found');
+        const endpoint = await findEndpoint(pool, event.endpoint_id);
+        if (endpoint && !endpoint.is_active) {
+          return sendError(reply, 409, 'conflict', 'Endpoint is disabled');
+        }
+        return sendError(
+          reply,
+          409,
+          'conflict',
+          `Event in status "${event.status}" cannot be replayed`,
+        );
+      }
+      // Событие уже pending в БД: сбой очереди не ломает ответ, его подберёт recovery sweeper.
+      try {
+        await enqueueReplay(deps.queue, id, replayNumber);
+      } catch (err) {
+        request.log.error({ err, eventId: id }, 'failed to enqueue replay; event stays pending');
+      }
+      request.log.info({ eventId: id, replay: replayNumber }, 'event replay started');
+      return reply.code(202).send({ eventId: id, status: 'pending', replay: replayNumber });
     });
 
     admin.get('/events/:id/attempts', async (request, reply) => {
