@@ -22,6 +22,11 @@ const envSchema = z
     SWEEPER_PROCESSING_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
     SWEEPER_BATCH_SIZE: z.coerce.number().int().positive().max(1_000).default(100),
     BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1_048_576),
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+    RATE_LIMIT_IP_MAX: z.coerce.number().int().positive().default(300),
+    RATE_LIMIT_ENDPOINT_MAX: z.coerce.number().int().positive().default(100),
+    TRUST_PROXY: z.string().default('false'),
+    SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(25_000),
   })
   .refine((e) => e.RETRY_MAX_DELAY_MS >= e.RETRY_BASE_DELAY_MS, {
     path: ['RETRY_MAX_DELAY_MS'],
@@ -52,6 +57,20 @@ export interface Config {
   readonly sweeperProcessingTimeoutMs: number;
   readonly sweeperBatchSize: number;
   readonly bodyLimitBytes: number;
+  readonly rateLimitWindowMs: number;
+  readonly rateLimitIpMax: number;
+  readonly rateLimitEndpointMax: number;
+  readonly trustProxy: boolean | number | string;
+  readonly shutdownTimeoutMs: number;
+}
+
+/** `true`/`false`, число хопов или список доверенных адресов/CIDR (формат proxy-addr). */
+function parseTrustProxy(raw: string): boolean | number | string {
+  const v = raw.trim();
+  if (v === '' || v.toLowerCase() === 'false') return false;
+  if (v.toLowerCase() === 'true') return true;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v;
 }
 
 /** Ошибка конфигурации: сообщения содержат только имена переменных и причины, но не их значения. */
@@ -91,6 +110,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sweeperProcessingTimeoutMs: e.SWEEPER_PROCESSING_TIMEOUT_MS,
     sweeperBatchSize: e.SWEEPER_BATCH_SIZE,
     bodyLimitBytes: e.BODY_LIMIT_BYTES,
+    rateLimitWindowMs: e.RATE_LIMIT_WINDOW_MS,
+    rateLimitIpMax: e.RATE_LIMIT_IP_MAX,
+    rateLimitEndpointMax: e.RATE_LIMIT_ENDPOINT_MAX,
+    trustProxy: parseTrustProxy(e.TRUST_PROXY),
+    shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
   });
 }
 

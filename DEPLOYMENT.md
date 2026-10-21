@@ -59,8 +59,15 @@ curl http://localhost:3000/health
 | `SWEEPER_BATCH_SIZE` | 1…1000 | `100` | нет | максимум событий за один проход sweeper | 14 |
 | `BODY_LIMIT_BYTES` | целое > 0 | `1048576` | нет | максимальный размер тела `POST /webhooks/:endpointId`; больше → 413 | 6 |
 
-Добавятся по ходу roadmap (описание появится в этой таблице на соответствующем шаге):
-лимиты rate limit и `TRUST_PROXY` _(шаг 17)_.
+| `RATE_LIMIT_WINDOW_MS` | целое > 0 | `60000` | нет | окно rate limit на `POST /webhooks/:endpointId`, мс | 17 |
+| `RATE_LIMIT_IP_MAX` | целое > 0 | `300` | нет | запросов на IP за окно; больше → 429 с `Retry-After` | 17 |
+| `RATE_LIMIT_ENDPOINT_MAX` | целое > 0 | `100` | нет | запросов на эндпоинт за окно; больше → 429 с `Retry-After` | 17 |
+| `TRUST_PROXY` | `true`/`false`/число/список CIDR | `false` | нет | доверие к `X-Forwarded-For`; за прокси задайте число хопов или адрес прокси, иначе лимит по IP считается по адресу прокси | 17 |
+| `SHUTDOWN_TIMEOUT_MS` | целое > 0 | `25000` | нет | максимум ожидания активных запросов при SIGTERM, затем принудительный выход; меньше `stop_grace_period` (30 с) | 17 |
+
+Счётчики rate limit лежат в Redis. Если Redis недоступен, лимитер пропускает запросы (fail-open) и пишет
+предупреждение в лог — приём вебхуков не останавливается. `unhandledRejection` и `uncaughtException`
+логируются на уровне `fatal`, процесс завершается с кодом 1.
 
 Генерация секрета:
 

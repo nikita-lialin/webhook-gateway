@@ -19,6 +19,7 @@ const CODES: Record<number, string> = {
   404: 'not_found',
   413: 'payload_too_large',
   415: 'unsupported_media_type',
+  429: 'rate_limited',
 };
 
 /** Единый формат ошибок `{ error: { code, message } }`; 5xx не раскрывают детали клиенту. */

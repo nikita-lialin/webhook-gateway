@@ -1,4 +1,5 @@
 import { Queue, Worker, type BackoffStrategy, type Job } from 'bullmq';
+import { Redis } from 'ioredis';
 
 export const DELIVERY_QUEUE_NAME = 'webhook-delivery';
 export const DLQ_QUEUE_NAME = 'webhook-dlq';
@@ -170,6 +171,21 @@ export async function startSweeperSchedule(
     await worker.close();
     await queue.close();
   };
+}
+
+/**
+ * Клиент Redis для rate limit. Без офлайн-очереди и с коротким таймаутом команд: при недоступном Redis
+ * лимитер быстро падает, и приём вебхуков продолжается (fail-open).
+ */
+export function createRateLimitRedis(config: { redisUrl: string }, commandTimeoutMs = 500): Redis {
+  const client = new Redis({
+    ...parseRedisUrl(config.redisUrl),
+    enableOfflineQueue: false,
+    commandTimeout: commandTimeoutMs,
+    connectTimeout: 2_000,
+    maxRetriesPerRequest: 1,
+  });
+  return client;
 }
 
 export async function closeDeliveryQueue(dq: DeliveryQueue): Promise<void> {

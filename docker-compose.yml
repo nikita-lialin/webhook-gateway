@@ -6,6 +6,8 @@ services:
     env_file: .env
     environment:
       PORT: "3000"
+    # больше SHUTDOWN_TIMEOUT_MS: активные запросы успевают завершиться
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

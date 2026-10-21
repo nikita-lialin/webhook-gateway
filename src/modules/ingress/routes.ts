@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance } from 'fastify';
+import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import type { Pool } from '../../db/index.js';
 import { enqueueDelivery, type DeliveryQueue } from '../../queue/index.js';
@@ -34,11 +36,49 @@ function singleHeader(value: string | string[] | undefined): string | undefined 
   return typeof value === 'string' ? value : undefined;
 }
 
+export interface IngressRateLimit {
+  readonly redis: Redis;
+  readonly windowMs: number;
+  readonly ipMax: number;
+  readonly endpointMax: number;
+}
+
 export function registerIngressRoutes(
   app: FastifyInstance,
-  deps: { pool: Pool; queue: DeliveryQueue; bodyLimitBytes: number; webhookSecret: string },
+  deps: {
+    pool: Pool;
+    queue: DeliveryQueue;
+    bodyLimitBytes: number;
+    webhookSecret: string;
+    rateLimit?: IngressRateLimit | undefined;
+  },
 ): void {
   void app.register(async (ingress) => {
+    const rl = deps.rateLimit;
+    if (rl) {
+      // onRequest: лимит срабатывает до чтения тела и проверки подписи. skipOnError — fail-open при сбое Redis.
+      const common = {
+        redis: rl.redis,
+        timeWindow: rl.windowMs,
+        skipOnError: true,
+        hook: 'onRequest' as const,
+      };
+      await ingress.register(rateLimit, {
+        ...common,
+        nameSpace: 'ingress-ip-',
+        max: rl.ipMax,
+        keyGenerator: (request) => request.ip,
+      });
+      await ingress.register(rateLimit, {
+        ...common,
+        nameSpace: 'ingress-endpoint-',
+        max: rl.endpointMax,
+        keyGenerator: (request) => {
+          const id = (request.params as { endpointId?: unknown } | undefined)?.endpointId;
+          return typeof id === 'string' ? id : request.ip;
+        },
+      });
+    }
     // Сырое тело нужно для HMAC (шаг 7): подпись считается по байтам, не по пересериализованному JSON.
     ingress.addContentTypeParser(
       'application/json',

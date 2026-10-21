@@ -36,7 +36,7 @@
 
 - [x] Шаг 15. Logs API (только чтение)
 - [x] Шаг 16. Ручной Replay
-- [ ] Шаг 17. Усиление: rate limiting и graceful shutdown API
+- [x] Шаг 17. Усиление: rate limiting и graceful shutdown API
 - [ ] Шаг 18. E2E-сценарий, аудит «Адвокат дьявола» и документация
 
 ---
