@@ -1,0 +1,7 @@
+# Все текстовые файлы хранятся и выгружаются с LF, в том числе на Windows.
+# Иначе shell-скрипты и healthcheck в контейнерах ломаются на CRLF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

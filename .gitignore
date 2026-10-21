@@ -1,0 +1,20 @@
+# Зависимости и сборка
+node_modules/
+dist/
+coverage/
+
+# Окружение
+.env
+.env.*
+!.env.example
+
+# Логи
+*.log
+npm-debug.log*
+
+# IDE / ОС
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
