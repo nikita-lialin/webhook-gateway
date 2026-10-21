@@ -1,3 +1,4 @@
+import { createDeliveryQueue } from '../../queue/index.js';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../app.js';
@@ -26,8 +27,16 @@ describe.skipIf(!testDatabaseUrl)('admin API /endpoints', () => {
 
   beforeAll(async () => {
     app = buildApp(
-      { logLevel: 'fatal', adminApiKey: KEY, bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
-      { pool: createTestPool(testDatabaseUrl as string) },
+      {
+        logLevel: 'fatal',
+        adminApiKey: KEY,
+        bodyLimitBytes: 1_048_576,
+        webhookSecret: 's'.repeat(32),
+      },
+      {
+        pool: createTestPool(testDatabaseUrl as string),
+        queue: createDeliveryQueue({ redisUrl: 'redis://127.0.0.1:1' }),
+      },
     );
     cleanupPool = createTestPool(testDatabaseUrl as string);
     await app.ready();

@@ -54,7 +54,12 @@ describe.skipIf(!testDatabaseUrl)('схема данных (init-schema)', () =>
       )
     ).rows[0]?.id as string;
 
-  const insertEvent = async (c: PoolClient, endpointId: string, key = 'k1', status = 'pending'): Promise<string> =>
+  const insertEvent = async (
+    c: PoolClient,
+    endpointId: string,
+    key = 'k1',
+    status = 'pending',
+  ): Promise<string> =>
     (
       await c.query<{ id: string }>(
         `INSERT INTO events (endpoint_id, idempotency_key, payload, status)
@@ -88,11 +93,21 @@ describe.skipIf(!testDatabaseUrl)('схема данных (init-schema)', () =>
       await run(async (c) => {
         const endpointId = await insertEndpoint(c);
         const eventId = await insertEvent(c, endpointId);
-        const { rows } = await c.query<{ is_active: boolean; status: string; attempts_count: number; headers: unknown }>(
+        const { rows } = await c.query<{
+          is_active: boolean;
+          status: string;
+          attempts_count: number;
+          headers: unknown;
+        }>(
           'SELECT e.is_active, v.status, v.attempts_count, v.headers FROM endpoints e, events v WHERE v.id = $1',
           [eventId],
         );
-        expect(rows[0]).toEqual({ is_active: true, status: 'pending', attempts_count: 0, headers: {} });
+        expect(rows[0]).toEqual({
+          is_active: true,
+          status: 'pending',
+          attempts_count: 0,
+          headers: {},
+        });
       });
     });
 
@@ -120,7 +135,10 @@ describe.skipIf(!testDatabaseUrl)('схема данных (init-schema)', () =>
       await run(async (c) => {
         const eventId = await insertEvent(c, await insertEndpoint(c));
         const attempt = (n: number): Promise<unknown> =>
-          c.query('INSERT INTO delivery_attempts (event_id, attempt_number) VALUES ($1, $2)', [eventId, n]);
+          c.query('INSERT INTO delivery_attempts (event_id, attempt_number) VALUES ($1, $2)', [
+            eventId,
+            n,
+          ]);
         await attempt(1);
         await attempt(2);
         await c.query('SAVEPOINT s1');
@@ -134,16 +152,22 @@ describe.skipIf(!testDatabaseUrl)('схема данных (init-schema)', () =>
       await run(async (c) => {
         const endpointId = await insertEndpoint(c);
         const eventId = await insertEvent(c, endpointId);
-        await c.query('INSERT INTO delivery_attempts (event_id, attempt_number) VALUES ($1, 1)', [eventId]);
+        await c.query('INSERT INTO delivery_attempts (event_id, attempt_number) VALUES ($1, 1)', [
+          eventId,
+        ]);
 
         await c.query('SAVEPOINT s');
-        await expect(c.query('DELETE FROM endpoints WHERE id = $1', [endpointId])).rejects.toMatchObject({
+        await expect(
+          c.query('DELETE FROM endpoints WHERE id = $1', [endpointId]),
+        ).rejects.toMatchObject({
           code: '23503',
         });
         await c.query('ROLLBACK TO s');
 
         await c.query('DELETE FROM events WHERE id = $1', [eventId]);
-        const { rows } = await c.query('SELECT 1 FROM delivery_attempts WHERE event_id = $1', [eventId]);
+        const { rows } = await c.query('SELECT 1 FROM delivery_attempts WHERE event_id = $1', [
+          eventId,
+        ]);
         expect(rows).toHaveLength(0);
       });
     });

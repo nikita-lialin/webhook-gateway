@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../../app.js';
 import { createPool } from '../../db/index.js';
-import { createTestPool, testDatabaseUrl } from '../../../test/db.js';
+import { createDeliveryQueue } from '../../queue/index.js';
+import { createTestPool, testDatabaseUrl, testRedisUrl } from '../../../test/db.js';
 
 describe('GET /health', () => {
   it('returns 503 and disconnected when the database is down', async () => {
@@ -11,25 +12,47 @@ describe('GET /health', () => {
       dbStatementTimeoutMs: 1_000,
     });
     const app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
-      { pool },
+      {
+        logLevel: 'fatal',
+        adminApiKey: 'k'.repeat(32),
+        bodyLimitBytes: 1_048_576,
+        webhookSecret: 's'.repeat(32),
+      },
+      { pool, queue: createDeliveryQueue({ redisUrl: 'redis://127.0.0.1:1' }, { timeoutMs: 300 }) },
     );
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(503);
-    expect(res.json()).toEqual({ status: 'degraded', services: { database: 'disconnected' } });
+    expect(res.json()).toEqual({
+      status: 'degraded',
+      services: { database: 'disconnected', redis: 'disconnected' },
+    });
     await app.close();
   });
 
-  it.skipIf(!testDatabaseUrl)('returns 200 and connected when the database is up', async () => {
-    const app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
-      { pool: createTestPool(testDatabaseUrl as string) },
-    );
-    const res = await app.inject({ method: 'GET', url: '/health' });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: 'ok', services: { database: 'connected' } });
-    await app.close();
-  });
+  it.skipIf(!testDatabaseUrl || !testRedisUrl)(
+    'returns 200 and connected when the database is up',
+    async () => {
+      const app = buildApp(
+        {
+          logLevel: 'fatal',
+          adminApiKey: 'k'.repeat(32),
+          bodyLimitBytes: 1_048_576,
+          webhookSecret: 's'.repeat(32),
+        },
+        {
+          pool: createTestPool(testDatabaseUrl as string),
+          queue: createDeliveryQueue({ redisUrl: testRedisUrl ?? 'redis://127.0.0.1:1' }),
+        },
+      );
+      const res = await app.inject({ method: 'GET', url: '/health' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        status: 'ok',
+        services: { database: 'connected', redis: 'connected' },
+      });
+      await app.close();
+    },
+  );
 
   it('closes the pool on app.close()', async () => {
     const pool = createPool({
@@ -38,8 +61,13 @@ describe('GET /health', () => {
       dbStatementTimeoutMs: 1_000,
     });
     const app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
-      { pool },
+      {
+        logLevel: 'fatal',
+        adminApiKey: 'k'.repeat(32),
+        bodyLimitBytes: 1_048_576,
+        webhookSecret: 's'.repeat(32),
+      },
+      { pool, queue: createDeliveryQueue({ redisUrl: 'redis://127.0.0.1:1' }, { timeoutMs: 300 }) },
     );
     await app.ready();
     await app.close();

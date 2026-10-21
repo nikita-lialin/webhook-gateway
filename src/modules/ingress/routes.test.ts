@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../app.js';
 import { computeSignature } from './signature.js';
-import { createTestPool, testDatabaseUrl } from '../../../test/db.js';
+import { createDeliveryQueue, type DeliveryQueue } from '../../queue/index.js';
+import { createTestPool, testDatabaseUrl, testRedisUrl } from '../../../test/db.js';
 import type { Pool } from '../../db/index.js';
 
 const LIMIT = 1024;
@@ -18,13 +19,23 @@ const signed = (payload: string, secret = SECRET, ts = Math.floor(Date.now() / 1
 describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
   let app: FastifyInstance;
   let cleanupPool: Pool;
+  let queue: DeliveryQueue;
   let activeId: string;
   let inactiveId: string;
 
   beforeAll(async () => {
+    queue = createDeliveryQueue(
+      { redisUrl: testRedisUrl ?? 'redis://127.0.0.1:1' },
+      { name: `webhook-delivery-test-${process.pid}`, timeoutMs: 500 },
+    );
     app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: LIMIT, webhookSecret: SECRET },
-      { pool: createTestPool(testDatabaseUrl as string) },
+      {
+        logLevel: 'fatal',
+        adminApiKey: 'k'.repeat(32),
+        bodyLimitBytes: LIMIT,
+        webhookSecret: SECRET,
+      },
+      { pool: createTestPool(testDatabaseUrl as string), queue },
     );
     cleanupPool = createTestPool(testDatabaseUrl as string);
     await app.ready();
@@ -63,6 +74,41 @@ describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
     const res = await post(activeId, '{"a":1}');
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ eventId: expect.any(String) });
+  });
+
+  it('still returns 202 when Redis is unavailable', async () => {
+    const down = createDeliveryQueue({ redisUrl: 'redis://127.0.0.1:1' }, { timeoutMs: 300 });
+    const app2 = buildApp(
+      {
+        logLevel: 'fatal',
+        adminApiKey: 'k'.repeat(32),
+        bodyLimitBytes: LIMIT,
+        webhookSecret: SECRET,
+      },
+      { pool: createTestPool(testDatabaseUrl as string), queue: down },
+    );
+    const payload = '{"redis":"down"}';
+    const res = await app2.inject({
+      method: 'POST',
+      url: `/webhooks/${activeId}`,
+      headers: signed(payload),
+      payload,
+    });
+    expect(res.statusCode).toBe(202);
+    await app2.close();
+  });
+
+  it.skipIf(!testRedisUrl)('enqueues exactly one job with the eventId', async () => {
+    await queue.queue.obliterate({ force: true });
+    const payload = '{"queued":1}';
+    const res = await post(activeId, payload);
+    expect(res.statusCode).toBe(202);
+    const { eventId } = res.json<{ eventId: string }>();
+    await post(activeId, payload); // дубликат: 200, задача не добавляется
+    const jobs = await queue.queue.getJobs(['waiting', 'delayed', 'active']);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.id).toBe(eventId);
+    expect(jobs[0]?.data).toEqual({ eventId });
   });
 
   describe('idempotency', () => {

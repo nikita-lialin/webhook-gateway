@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Pool } from '../../db/index.js';
+import { enqueueDelivery, type DeliveryQueue } from '../../queue/index.js';
 import { findEndpoint } from '../endpoints/repository.js';
 import { insertEventIdempotent } from '../events/repository.js';
 import { sendError } from '../http/errors.js';
@@ -35,7 +36,7 @@ function singleHeader(value: string | string[] | undefined): string | undefined 
 
 export function registerIngressRoutes(
   app: FastifyInstance,
-  deps: { pool: Pool; bodyLimitBytes: number; webhookSecret: string },
+  deps: { pool: Pool; queue: DeliveryQueue; bodyLimitBytes: number; webhookSecret: string },
 ): void {
   void app.register(async (ingress) => {
     // Сырое тело нужно для HMAC (шаг 7): подпись считается по байтам, не по пересериализованному JSON.
@@ -104,9 +105,9 @@ export function registerIngressRoutes(
         if (rawKey && rawKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
           return sendError(reply, 400, 'validation_error', 'Idempotency-Key is too long');
         }
-        const idempotencyKey =
-          rawKey ?? createHash('sha256').update(request.body).digest('hex');
+        const idempotencyKey = rawKey ?? createHash('sha256').update(request.body).digest('hex');
 
+        let eventId: string;
         try {
           const saved = await insertEventIdempotent(deps.pool, {
             endpointId: endpoint.id,
@@ -117,11 +118,19 @@ export function registerIngressRoutes(
           if (saved.duplicate) {
             return reply.code(200).send({ eventId: saved.eventId, duplicate: true });
           }
-          return reply.code(202).send({ eventId: saved.eventId });
+          eventId = saved.eventId;
         } catch (err) {
           request.log.error({ err, endpointId: endpoint.id }, 'failed to store event');
           return sendError(reply, 503, 'service_unavailable', 'Temporarily unable to store event');
         }
+
+        // Событие уже в БД: сбой очереди не ломает ответ, событие остаётся pending (подберёт шаг 14).
+        try {
+          await enqueueDelivery(deps.queue, eventId);
+        } catch (err) {
+          request.log.error({ err, eventId }, 'failed to enqueue delivery; event stays pending');
+        }
+        return reply.code(202).send({ eventId });
       },
     );
   });

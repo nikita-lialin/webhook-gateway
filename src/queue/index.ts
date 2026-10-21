@@ -1,0 +1,69 @@
+import { Queue } from 'bullmq';
+
+export const DELIVERY_QUEUE_NAME = 'webhook-delivery';
+export const DEFAULT_ENQUEUE_TIMEOUT_MS = 2_000;
+const KEEP_COMPLETED = { age: 3_600, count: 1_000 };
+const KEEP_FAILED = { age: 7 * 24 * 3_600, count: 5_000 };
+
+export interface DeliveryQueue {
+  readonly queue: Queue;
+  readonly timeoutMs: number;
+}
+
+function parseRedisUrl(url: string) {
+  const u = new URL(url);
+  return {
+    host: u.hostname,
+    port: u.port ? Number(u.port) : 6379,
+    username: u.username ? decodeURIComponent(u.username) : undefined,
+    password: u.password ? decodeURIComponent(u.password) : undefined,
+    db: u.pathname.length > 1 ? Number(u.pathname.slice(1)) : undefined,
+    tls: u.protocol === 'rediss:' ? {} : undefined,
+  };
+}
+
+export function createDeliveryQueue(
+  config: { redisUrl: string },
+  options: { name?: string; timeoutMs?: number } = {},
+): DeliveryQueue {
+  const queue = new Queue(options.name ?? DELIVERY_QUEUE_NAME, {
+    connection: { ...parseRedisUrl(config.redisUrl), enableOfflineQueue: false },
+    defaultJobOptions: { removeOnComplete: KEEP_COMPLETED, removeOnFail: KEEP_FAILED },
+  });
+  // Без обработчика ошибка соединения станет unhandled 'error'; недоступность видна в enqueue и /health.
+  queue.on('error', () => undefined);
+  return { queue, timeoutMs: options.timeoutMs ?? DEFAULT_ENQUEUE_TIMEOUT_MS };
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** В задаче только eventId; jobId = eventId, поэтому повторная постановка дубля не создаёт. */
+export async function enqueueDelivery(dq: DeliveryQueue, eventId: string): Promise<void> {
+  await withTimeout(
+    dq.queue.add('deliver', { eventId }, { jobId: eventId }),
+    dq.timeoutMs,
+    'enqueue',
+  );
+}
+
+export async function isRedisHealthy(dq: DeliveryQueue): Promise<boolean> {
+  try {
+    await withTimeout(dq.queue.waitUntilReady(), dq.timeoutMs, 'redis connect');
+    await withTimeout(dq.queue.getJobCounts('waiting'), dq.timeoutMs, 'redis roundtrip');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function closeDeliveryQueue(dq: DeliveryQueue): Promise<void> {
+  await dq.queue.close();
+}
+
+export type { Queue };

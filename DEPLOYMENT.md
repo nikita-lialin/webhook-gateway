@@ -120,7 +120,8 @@ npm test
 ```
 
 Без `TEST_DATABASE_URL` integration-тесты пропускаются (unit-тесты идут всегда).
-Тот же Redis с отдельным префиксом очередей — _(шаг 9)_.
+Для тестов очереди и `services.redis` задайте ещё `TEST_REDIS_URL` (например `redis://localhost:6379`); без неё эти тесты пропускаются.
+Очередь `webhook-delivery` хранит только `eventId` (jobId = eventId); если Redis недоступен, ingress всё равно отвечает 202, а событие остаётся `pending`.
 
 ## Контракт `GET /health`
 
@@ -150,7 +151,7 @@ npm test
 }
 ```
 
-`services.database` появился на шаге 3, `services.redis` появится на шаге 9. До шага 9 Redis в ответе нет.
+`services.database` появился на шаге 3, `services.redis` — на шаге 9.
 
 ## Логи
 

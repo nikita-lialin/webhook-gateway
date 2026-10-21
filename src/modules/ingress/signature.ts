@@ -17,10 +17,7 @@ export type SignatureResult = { ok: true } | { ok: false; reason: SignatureFailu
 
 /** Значение заголовка `X-Webhook-Signature` для строки `<timestamp>.<rawBody>`. */
 export function computeSignature(rawBody: Buffer, timestamp: string, secret: string): string {
-  const digest = createHmac('sha256', secret)
-    .update(`${timestamp}.`)
-    .update(rawBody)
-    .digest('hex');
+  const digest = createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest('hex');
   return `sha256=${digest}`;
 }
 

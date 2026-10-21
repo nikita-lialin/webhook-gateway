@@ -4,7 +4,7 @@ import { computeSignature } from '../modules/ingress/signature.js';
 const [endpointId, body, baseUrl = 'http://localhost:3000'] = process.argv.slice(2);
 
 if (!endpointId || body === undefined) {
-  process.stderr.write('usage: npm run sign -- <endpointId> \'<json body>\' [baseUrl]\n');
+  process.stderr.write("usage: npm run sign -- <endpointId> '<json body>' [baseUrl]\n");
   process.exit(2);
 }
 

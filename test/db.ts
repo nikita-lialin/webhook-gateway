@@ -7,3 +7,6 @@ export const testDatabaseUrl = loadTestDatabaseUrl();
 export function createTestPool(url: string): Pool {
   return createPool({ databaseUrl: url, dbPoolMax: 3, dbStatementTimeoutMs: 5_000 });
 }
+
+/** URL тестового Redis или `undefined`, если integration-тесты очереди не настроены. */
+export const testRedisUrl = process.env.TEST_REDIS_URL || undefined;

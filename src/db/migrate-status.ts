@@ -14,9 +14,9 @@ async function main(): Promise<void> {
       [MIGRATIONS_TABLE],
     );
     const applied = table.rows[0]?.exists
-      ? (await pool.query<{ name: string }>(`SELECT name FROM ${MIGRATIONS_TABLE} ORDER BY id`)).rows.map(
-          (r) => r.name,
-        )
+      ? (
+          await pool.query<{ name: string }>(`SELECT name FROM ${MIGRATIONS_TABLE} ORDER BY id`)
+        ).rows.map((r) => r.name)
       : [];
     const files = (await readdir(MIGRATIONS_DIR))
       .filter((f) => /\.(sql|js|cjs|mjs|ts)$/.test(f))
@@ -30,6 +30,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`migrate:status failed: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(
+    `migrate:status failed: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
   process.exit(1);
 });

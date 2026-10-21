@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { buildApp } from './app.js';
 import { ConfigError, loadConfig, type Config } from './config/index.js';
 import { createPool } from './db/index.js';
+import { createDeliveryQueue } from './queue/index.js';
 
 let config: Config;
 try {
@@ -16,7 +17,10 @@ try {
   }
   process.exit(1);
 }
-const app = buildApp(config, { pool: createPool(config) });
+const app = buildApp(config, {
+  pool: createPool(config),
+  queue: createDeliveryQueue(config),
+});
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, 'shutting down');
