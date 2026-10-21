@@ -47,7 +47,7 @@ curl http://localhost:3000/health
 | `DB_STATEMENT_TIMEOUT_MS` | целое > 0 | `10000` | нет | `statement_timeout` для каждого соединения | 3 |
 | `REDIS_URL` | URL | — | да | строка подключения Redis | 1 |
 | `WEBHOOK_SECRET` | строка, ≥ 32 символов | — | да | секрет проверки HMAC-подписи входящих вебхуков (`X-Webhook-Signature`) | 7 |
-| `ADMIN_API_KEY` | строка, ≥ 32 символов | — | да | статичный ключ admin-API (`/endpoints`), передаётся в заголовке `X-Admin-Api-Key` | 5 |
+| `ADMIN_API_KEY` | строка, ≥ 32 символов | — | да | статичный ключ admin-API (`/endpoints`, `/events`), передаётся в заголовке `X-Admin-Api-Key` | 5 |
 | `WORKER_CONCURRENCY` | целое > 0 | `5` | нет | число параллельных доставок в одном воркере | 1 |
 | `MAX_RETRY_ATTEMPTS` | целое > 0 | `8` | нет | максимум попыток доставки до перевода в `dead` | 1 |
 | `RETRY_BASE_DELAY_MS` | целое > 0 | `1000` | нет | база backoff: задержка перед n-м повтором — `base × 2^(n−1)` с full jitter, мс | 12 |

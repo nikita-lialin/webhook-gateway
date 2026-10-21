@@ -3,6 +3,7 @@ import type { Config } from './config/index.js';
 import type { Pool } from './db/index.js';
 import { closeDeliveryQueue, type DeliveryQueue } from './queue/index.js';
 import { registerEndpointRoutes } from './modules/endpoints/routes.js';
+import { registerEventRoutes } from './modules/events/routes.js';
 import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerErrorHandler } from './modules/http/errors.js';
 import { registerIngressRoutes } from './modules/ingress/routes.js';
@@ -36,6 +37,7 @@ export function buildApp(
   registerErrorHandler(app);
   registerHealthRoutes(app, deps.pool, deps.queue);
   registerEndpointRoutes(app, { pool: deps.pool, adminApiKey: config.adminApiKey });
+  registerEventRoutes(app, { pool: deps.pool, adminApiKey: config.adminApiKey });
   registerIngressRoutes(app, {
     pool: deps.pool,
     queue: deps.queue,
