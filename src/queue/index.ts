@@ -1,6 +1,7 @@
 import { Queue, Worker, type BackoffStrategy, type Job } from 'bullmq';
 
 export const DELIVERY_QUEUE_NAME = 'webhook-delivery';
+export const DLQ_QUEUE_NAME = 'webhook-dlq';
 export const DEFAULT_ENQUEUE_TIMEOUT_MS = 2_000;
 const KEEP_COMPLETED = { age: 3_600, count: 1_000 };
 const KEEP_FAILED = { age: 7 * 24 * 3_600, count: 5_000 };
@@ -60,6 +61,30 @@ export async function enqueueDelivery(dq: DeliveryQueue, eventId: string): Promi
     dq.timeoutMs,
     'enqueue',
   );
+}
+
+export interface DeadLetterData {
+  eventId: string;
+  endpointId: string;
+  attempts: number;
+  reason: string;
+}
+
+/** DLQ только для наблюдения и алертов: источник истины — `events.status = 'dead'` в PostgreSQL. */
+export function createDlqQueue(
+  config: { redisUrl: string },
+  options: { name?: string; timeoutMs?: number } = {},
+): DeliveryQueue {
+  const queue = new Queue(options.name ?? DLQ_QUEUE_NAME, {
+    connection: { ...parseRedisUrl(config.redisUrl), enableOfflineQueue: false },
+    defaultJobOptions: { removeOnComplete: false, removeOnFail: false },
+  });
+  queue.on('error', () => undefined);
+  return { queue, maxAttempts: 1, timeoutMs: options.timeoutMs ?? DEFAULT_ENQUEUE_TIMEOUT_MS };
+}
+
+export async function enqueueDead(dlq: DeliveryQueue, data: DeadLetterData): Promise<void> {
+  await withTimeout(dlq.queue.add('dead', data, { attempts: 1 }), dlq.timeoutMs, 'dlq enqueue');
 }
 
 export async function isRedisHealthy(dq: DeliveryQueue): Promise<boolean> {

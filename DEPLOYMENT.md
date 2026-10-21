@@ -124,6 +124,7 @@ npm test
 Без `TEST_DATABASE_URL` integration-тесты пропускаются (unit-тесты идут всегда).
 Для тестов очереди и `services.redis` задайте ещё `TEST_REDIS_URL` (например `redis://localhost:6379`); без неё эти тесты пропускаются.
 Очередь `webhook-delivery` хранит только `eventId` (jobId = eventId); если Redis недоступен, ingress всё равно отвечает 202, а событие остаётся `pending`.
+Очередь `webhook-dlq` (только наблюдение и алерты): при переходе события в `dead` воркер кладёт туда `{ eventId, endpointId, attempts, reason }`; сбой записи в DLQ только логируется, статус в PostgreSQL остаётся `dead`. Неповторяемая ошибка (4xx) → `failed`, в DLQ не попадает.
 
 ## Контракт `GET /health`
 

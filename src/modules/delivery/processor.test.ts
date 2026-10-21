@@ -15,7 +15,8 @@ describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
   let base: string;
   const endpoints: string[] = [];
   let flakyHits = 0;
-  const log = { info: () => undefined, warn: () => undefined };
+  const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
+  const dead: unknown[] = [];
 
   const makeEvent = async (path: string): Promise<string> => {
     const e = await pool.query<{ id: string }>(
@@ -71,6 +72,7 @@ describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
       maxRetryAttempts,
       baseDelayMs: 10,
       maxDelayMs: 50,
+      onDead: async (letter) => void dead.push(letter),
     })({ data: { eventId } });
 
   it('marks delivered and logs the attempt on 2xx', async () => {
@@ -98,13 +100,28 @@ describe.skipIf(!testDatabaseUrl)('delivery processor', () => {
     expect(event).toMatchObject({ status: 'failed', attempts_count: 1, next_attempt_at: null });
   });
 
-  it('marks failed when retry attempts are exhausted', async () => {
+  it('marks dead and sends to DLQ after exactly MAX attempts of a receiver that always 500s', async () => {
     const id = await makeEvent('/bad');
-    await expect(run(id, 2)).rejects.toBeInstanceOf(RetryableDeliveryError);
-    await expect(run(id, 2)).rejects.toBeInstanceOf(UnrecoverableError);
+    dead.length = 0;
+    await expect(run(id, 3)).rejects.toBeInstanceOf(RetryableDeliveryError);
+    await expect(run(id, 3)).rejects.toBeInstanceOf(RetryableDeliveryError);
+    expect(dead).toHaveLength(0);
+    await expect(run(id, 3)).rejects.toBeInstanceOf(UnrecoverableError);
     const { event, attempts } = await state(id);
-    expect(event).toMatchObject({ status: 'failed', attempts_count: 2 });
-    expect(attempts).toHaveLength(2);
+    expect(event).toMatchObject({ status: 'dead', attempts_count: 3, next_attempt_at: null });
+    expect(attempts).toHaveLength(3);
+    expect(dead).toEqual([
+      { eventId: id, endpointId: event?.endpoint_id, attempts: 3, reason: 'HTTP 500' },
+    ]);
+    await run(id, 3);
+    expect((await state(id)).attempts).toHaveLength(3);
+  });
+
+  it('keeps failed (not dead) for a non-retryable 4xx', async () => {
+    const id = await makeEvent('/gone');
+    dead.length = 0;
+    await expect(run(id)).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(dead).toHaveLength(0);
   });
 
   it('delivers on the third attempt after two 500s', async () => {

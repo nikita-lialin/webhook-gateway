@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { ConfigError, loadConfig, type Config } from './config/index.js';
 import { createPool } from './db/index.js';
-import { createDeliveryWorker } from './queue/index.js';
+import { closeDeliveryQueue, createDeliveryWorker, createDlqQueue, enqueueDead } from './queue/index.js';
 import { createDeliveryProcessor } from './modules/delivery/processor.js';
 import { backoffStrategy } from './modules/delivery/retry.js';
 
@@ -21,12 +21,14 @@ try {
 // Fastify используется только как фабрика pino-логгера (тот же JSON-формат, что у app).
 const log = Fastify({ logger: { level: config.logLevel } }).log;
 const pool = createPool(config);
+const dlq = createDlqQueue(config);
 const backoff = { baseDelayMs: config.retryBaseDelayMs, maxDelayMs: config.retryMaxDelayMs };
 const worker = createDeliveryWorker(
   config,
   createDeliveryProcessor(pool, log, {
     deliveryTimeoutMs: config.deliveryTimeoutMs,
     maxRetryAttempts: config.maxRetryAttempts,
+    onDead: (letter) => enqueueDead(dlq, letter),
     ...backoff,
   }),
   { backoffStrategy: backoffStrategy(backoff) },
@@ -40,6 +42,7 @@ async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'shutting down');
   try {
     await worker.close();
+    await closeDeliveryQueue(dlq);
     await pool.end();
     process.exit(0);
   } catch (err) {

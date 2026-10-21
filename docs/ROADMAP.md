@@ -29,7 +29,7 @@
 - [ ] Шаг 10. Процесс воркера и сервис worker в Compose
 - [ ] Шаг 11. Dispatcher: HTTP-отправка и журнал попыток
 - [ ] Шаг 12. Retry и экспоненциальный backoff
-- [ ] Шаг 13. Dead Letter Queue
+- [x] Шаг 13. Dead Letter Queue
 - [ ] Шаг 14. Восстановление «застрявших» событий (Recovery Sweeper)
 
 ### Фаза D. Логи, Replay, усиление и сдача

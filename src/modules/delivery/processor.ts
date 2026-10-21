@@ -13,6 +13,14 @@ import {
 export interface ProcessorLogger {
   info(obj: object, msg: string): void;
   warn(obj: object, msg: string): void;
+  error(obj: object, msg: string): void;
+}
+
+export interface DeadLetter {
+  eventId: string;
+  endpointId: string;
+  attempts: number;
+  reason: string;
 }
 
 const ENDPOINT_MISSING: DispatchResult = {
@@ -28,13 +36,18 @@ const ENDPOINT_MISSING: DispatchResult = {
  * Обработчик задачи: захват события, HTTP-отправка, запись попытки. 2xx → `delivered`.
  * Повторяемая неудача с оставшимися попытками → `pending` + `next_attempt_at`, бросается
  * `RetryableDeliveryError` (BullMQ повторит задачу по backoff-стратегии воркера). Неповторяемая
- * или последняя → `failed` и `UnrecoverableError` (перевод в `dead` — шаг 13). Исключение при сбое БД
- * тоже уходит в BullMQ.
+ * → `failed` и `UnrecoverableError`. Повторяемая неудача на последней попытке
+ * (`attemptNumber >= maxRetryAttempts`) → `dead`, запись в лог и в DLQ через `onDead`; сбой DLQ не
+ * отменяет перевод (источник истины — PostgreSQL). Исключение при сбое БД тоже уходит в BullMQ.
  */
 export function createDeliveryProcessor(
   pool: Pool,
   log: ProcessorLogger,
-  options: { deliveryTimeoutMs: number; maxRetryAttempts: number } & BackoffOptions,
+  options: {
+    deliveryTimeoutMs: number;
+    maxRetryAttempts: number;
+    onDead?: (letter: DeadLetter) => Promise<void>;
+  } & BackoffOptions,
 ) {
   return async (job: { data: { eventId: string } }): Promise<void> => {
     const { eventId } = job.data;
@@ -48,9 +61,11 @@ export function createDeliveryProcessor(
     const result = endpoint
       ? await dispatch(event, endpoint, { timeoutMs: options.deliveryTimeoutMs })
       : ENDPOINT_MISSING;
-    const retry = !result.ok && isRetryable(result) && attemptNumber < options.maxRetryAttempts;
+    const retryable = !result.ok && isRetryable(result);
+    const retry = retryable && attemptNumber < options.maxRetryAttempts;
+    const dead = retryable && !retry;
     const delayMs = retry ? computeBackoffDelay(attemptNumber, options, result.retryAfterMs) : null;
-    const status = result.ok ? 'delivered' : retry ? 'pending' : 'failed';
+    const status = result.ok ? 'delivered' : retry ? 'pending' : dead ? 'dead' : 'failed';
     const nextAttemptAt = delayMs === null ? null : new Date(Date.now() + delayMs);
     await recordAttempt(pool, eventId, attemptNumber, result, status, nextAttemptAt);
     log[result.ok ? 'info' : 'warn'](
@@ -65,6 +80,23 @@ export function createDeliveryProcessor(
       },
       'delivery attempt finished',
     );
+    if (dead) {
+      const reason = result.error ?? `HTTP ${result.responseStatus}`;
+      log.error(
+        { eventId, endpointId: event.endpoint_id, attempts: attemptNumber, lastError: reason },
+        'event moved to dead letter queue',
+      );
+      try {
+        await options.onDead?.({
+          eventId,
+          endpointId: event.endpoint_id,
+          attempts: attemptNumber,
+          reason,
+        });
+      } catch (err) {
+        log.error({ err, eventId }, 'failed to enqueue event to DLQ');
+      }
+    }
     if (delayMs !== null) {
       throw new RetryableDeliveryError(result.error ?? `HTTP ${result.responseStatus}`, delayMs);
     }
