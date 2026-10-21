@@ -46,7 +46,7 @@ curl http://localhost:3000/health
 | `DB_POOL_MAX` | целое > 0 | `10` | нет | максимум соединений в пуле PostgreSQL | 3 |
 | `DB_STATEMENT_TIMEOUT_MS` | целое > 0 | `10000` | нет | `statement_timeout` для каждого соединения | 3 |
 | `REDIS_URL` | URL | — | да | строка подключения Redis | 1 |
-| `WEBHOOK_SECRET` | строка, ≥ 32 символов | — | да | секрет проверки HMAC-подписи входящих вебхуков | 1 |
+| `WEBHOOK_SECRET` | строка, ≥ 32 символов | — | да | секрет проверки HMAC-подписи входящих вебхуков (`X-Webhook-Signature`) | 7 |
 | `ADMIN_API_KEY` | строка, ≥ 32 символов | — | да | статичный ключ admin-API (`/endpoints`), передаётся в заголовке `X-Admin-Api-Key` | 5 |
 | `WORKER_CONCURRENCY` | целое > 0 | `5` | нет | число параллельных доставок в одном воркере | 1 |
 | `MAX_RETRY_ATTEMPTS` | целое > 0 | `8` | нет | максимум попыток доставки до перевода в `dead` | 1 |
@@ -75,6 +75,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `npm run migrate:up` | применить миграции | 3 |
 | `npm run migrate:down` | откатить последнюю миграцию | 3 |
 | `npm run migrate:status` | показать применённые и ожидающие миграции | 3 |
+| `npm run sign -- <endpointId> '<json>' [baseUrl]` | отправить подписанный тестовый вебхук (секрет из `WEBHOOK_SECRET`; запускать в контейнере `app`) | 7 |
 | `npm run worker` | запуск воркера | 10 |
 
 Внутри контейнера:

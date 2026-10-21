@@ -3,12 +3,17 @@ import { z } from 'zod';
 import type { Pool } from '../../db/index.js';
 import { findEndpoint } from '../endpoints/repository.js';
 import { sendError } from '../http/errors.js';
+import { verifySignature } from './signature.js';
 
 const params = z.strictObject({ endpointId: z.uuid() });
 
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 export function registerIngressRoutes(
   app: FastifyInstance,
-  deps: { pool: Pool; bodyLimitBytes: number },
+  deps: { pool: Pool; bodyLimitBytes: number; webhookSecret: string },
 ): void {
   void app.register(async (ingress) => {
     // Сырое тело нужно для HMAC (шаг 7): подпись считается по байтам, не по пересериализованному JSON.
@@ -28,7 +33,24 @@ export function registerIngressRoutes(
 
     ingress.post<{ Params: { endpointId: string }; Body: Buffer }>(
       '/webhooks/:endpointId',
-      { bodyLimit: deps.bodyLimitBytes },
+      {
+        bodyLimit: deps.bodyLimitBytes,
+        preHandler: async (request, reply) => {
+          // Не-Buffer тело (нет Content-Type) отклоняет обработчик с 415.
+          if (!Buffer.isBuffer(request.body)) return;
+          const result = verifySignature(
+            request.body,
+            singleHeader(request.headers['x-webhook-timestamp']),
+            singleHeader(request.headers['x-webhook-signature']),
+            deps.webhookSecret,
+            Date.now(),
+          );
+          if (!result.ok) {
+            request.log.warn({ reason: result.reason }, 'webhook signature rejected');
+            return sendError(reply, 401, 'unauthorized', 'Invalid signature');
+          }
+        },
+      },
       async (request, reply) => {
         const p = params.safeParse(request.params);
         if (!p.success) {

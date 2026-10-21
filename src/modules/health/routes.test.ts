@@ -11,7 +11,7 @@ describe('GET /health', () => {
       dbStatementTimeoutMs: 1_000,
     });
     const app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576 },
+      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
       { pool },
     );
     const res = await app.inject({ method: 'GET', url: '/health' });
@@ -22,7 +22,7 @@ describe('GET /health', () => {
 
   it.skipIf(!testDatabaseUrl)('returns 200 and connected when the database is up', async () => {
     const app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576 },
+      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
       { pool: createTestPool(testDatabaseUrl as string) },
     );
     const res = await app.inject({ method: 'GET', url: '/health' });
@@ -38,7 +38,7 @@ describe('GET /health', () => {
       dbStatementTimeoutMs: 1_000,
     });
     const app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576 },
+      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: 1_048_576, webhookSecret: 's'.repeat(32) },
       { pool },
     );
     await app.ready();

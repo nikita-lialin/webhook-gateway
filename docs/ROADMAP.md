@@ -19,8 +19,8 @@
 
 ### Фаза B. Приём вебхуков (Ingress)
 
-- [ ] Шаг 6. Маршрут приёма и валидация payload
-- [ ] Шаг 7. Проверка HMAC-подписи
+- [x] Шаг 6. Маршрут приёма и валидация payload
+- [x] Шаг 7. Проверка HMAC-подписи
 - [ ] Шаг 8. Сохранение события и идемпотентность
 - [ ] Шаг 9. Redis, BullMQ и постановка в очередь
 
@@ -43,15 +43,15 @@
 
 ## Текущий шаг
 
-### Шаг 5. Реестр подписчиков (Endpoints)
+### Шаг 7. Проверка HMAC-подписи
 
-Репозиторий и минимальный admin-API: `POST /endpoints`, `GET /endpoints`, `GET /endpoints/:id`,
-`PATCH /endpoints/:id` (вкл/выкл, target_url). Защита — статичный ключ `ADMIN_API_KEY` в заголовке `X-Admin-Api-Key`.
+Чистая функция `verifySignature(rawBody, timestamp, signature, secret, now)` и `preHandler` на маршруте.
+Заголовки `X-Webhook-Timestamp` и `X-Webhook-Signature: sha256=<hex>` от строки `<timestamp>.<rawBody>`,
+секрет — `WEBHOOK_SECRET`.
 
 DoD:
 
-- [x] `target_url` валидируется (только http/https).
-- [x] `signing_secret` генерируется сервером (`crypto.randomBytes(32)`), отдаётся один раз в ответе на создание и не попадает в GET.
-- [x] Запрос без ключа → 401; ключ сравнивается через `timingSafeEqual`.
-- [x] Integration-тесты на создание, список, деактивацию и 401.
-- [x] `ADMIN_API_KEY` добавлен в конфиг, `.env.example` и `DEPLOYMENT.md`.
+- [x] Сравнение через `crypto.timingSafeEqual` с предварительной проверкой длины буферов.
+- [x] Нет подписи, неверная подпись или timestamp вне окна ±5 минут → 401 без раскрытия причины (причина — только в логе).
+- [x] Unit-тесты: валидная подпись, изменённый байт тела, другая длина, просроченный и «будущий» timestamp.
+- [x] В `README` есть скрипт `npm run sign` для ручной отправки подписанного запроса.

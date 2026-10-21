@@ -1,11 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../app.js';
+import { computeSignature } from './signature.js';
 import { createTestPool, testDatabaseUrl } from '../../../test/db.js';
 import type { Pool } from '../../db/index.js';
 
 const LIMIT = 1024;
+const SECRET = 'w'.repeat(32);
 const json = { 'content-type': 'application/json' };
+
+const signed = (payload: string, secret = SECRET, ts = Math.floor(Date.now() / 1000)) => ({
+  ...json,
+  'x-webhook-timestamp': String(ts),
+  'x-webhook-signature': computeSignature(Buffer.from(payload), String(ts), secret),
+});
 
 describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
   let app: FastifyInstance;
@@ -15,7 +23,7 @@ describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
 
   beforeAll(async () => {
     app = buildApp(
-      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: LIMIT },
+      { logLevel: 'fatal', adminApiKey: 'k'.repeat(32), bodyLimitBytes: LIMIT, webhookSecret: SECRET },
       { pool: createTestPool(testDatabaseUrl as string) },
     );
     cleanupPool = createTestPool(testDatabaseUrl as string);
@@ -40,8 +48,13 @@ describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
     await app.close();
   });
 
-  const post = (id: string, payload: string, headers: Record<string, string> = json) =>
-    app.inject({ method: 'POST', url: `/webhooks/${id}`, headers, payload });
+  const post = (id: string, payload: string, headers?: Record<string, string>) =>
+    app.inject({
+      method: 'POST',
+      url: `/webhooks/${id}`,
+      headers: headers ?? signed(payload),
+      payload,
+    });
 
   it('accepts valid JSON with 202', async () => {
     const res = await post(activeId, '{"a":1}');
@@ -83,5 +96,27 @@ describe.skipIf(!testDatabaseUrl)('POST /webhooks/:endpointId', () => {
     const res = await post('abc', '{}');
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: { code: 'validation_error' } });
+  });
+
+  describe('signature', () => {
+    const body = '{"a":1}';
+    const expectUnauthorized = (res: { statusCode: number; json: () => unknown }) => {
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: { code: 'unauthorized', message: 'Invalid signature' } });
+    };
+
+    it('returns 401 without signature headers', async () => {
+      expectUnauthorized(await post(activeId, body, json));
+    });
+
+    it('returns 401 for a wrong signature, secret or tampered body', async () => {
+      expectUnauthorized(await post(activeId, body, signed(body, 'x'.repeat(32))));
+      expectUnauthorized(await post(activeId, '{"a":2}', signed(body)));
+    });
+
+    it('returns 401 for a stale timestamp with an otherwise valid signature', async () => {
+      const old = Math.floor(Date.now() / 1000) - 600;
+      expectUnauthorized(await post(activeId, body, signed(body, SECRET, old)));
+    });
   });
 });

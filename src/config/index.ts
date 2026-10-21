@@ -76,3 +76,10 @@ export function loadTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): strin
     .safeParse(env.TEST_DATABASE_URL || undefined);
   return parsed.success ? parsed.data : undefined;
 }
+
+/** Для CLI-скрипта подписи: только `WEBHOOK_SECRET`, без остальных переменных окружения. */
+export function loadWebhookSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const parsed = envSchema.shape.WEBHOOK_SECRET.safeParse(env.WEBHOOK_SECRET);
+  if (!parsed.success) throw new ConfigError(['WEBHOOK_SECRET: must be set (min 32 characters)']);
+  return parsed.data;
+}

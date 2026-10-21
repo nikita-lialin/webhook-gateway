@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "sign": "node dist/tools/sign.js",
     "migrate:up": "node-pg-migrate up --migrations-dir migrations",
     "migrate:down": "node-pg-migrate down --migrations-dir migrations",
     "migrate:status": "node dist/db/migrate-status.js",

@@ -12,7 +12,7 @@ export interface AppDeps {
 }
 
 export function buildApp(
-  config: Pick<Config, 'logLevel' | 'adminApiKey' | 'bodyLimitBytes'>,
+  config: Pick<Config, 'logLevel' | 'adminApiKey' | 'bodyLimitBytes' | 'webhookSecret'>,
   deps: AppDeps,
 ): FastifyInstance {
   const app = Fastify({ logger: { level: config.logLevel } });
@@ -27,6 +27,10 @@ export function buildApp(
   registerErrorHandler(app);
   registerHealthRoutes(app, deps.pool);
   registerEndpointRoutes(app, { pool: deps.pool, adminApiKey: config.adminApiKey });
-  registerIngressRoutes(app, { pool: deps.pool, bodyLimitBytes: config.bodyLimitBytes });
+  registerIngressRoutes(app, {
+    pool: deps.pool,
+    bodyLimitBytes: config.bodyLimitBytes,
+    webhookSecret: config.webhookSecret,
+  });
   return app;
 }
